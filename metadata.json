@@ -1,0 +1,6 @@
+{
+  "name": "Wedding Planner & Coordination Portal",
+  "description": "A comprehensive wedding planning application to track guest RSVPs, seating charts, budget expenses, vendor contacts, schedules, and real-time coordination.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
