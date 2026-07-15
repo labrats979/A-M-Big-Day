@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import SeatingPlanner from './SeatingPlanner';
 import BudgetManager from './BudgetManager';
 import VendorManager from './VendorManager';
+import TaskBoard from './TaskBoard';
 import { jsPDF } from 'jspdf';
 import { 
   Users, Layout, DollarSign, Briefcase, Download, RotateCcw, 
@@ -11,7 +12,7 @@ import {
 } from 'lucide-react';
 
 import Scheduler from './Scheduler';
-import { Guest, Table, Expense, Vendor, UserRole, WeddingSettings, GalleryItem, ScheduleItem } from '../types';
+import { Guest, Table, Expense, Vendor, UserRole, WeddingSettings, GalleryItem, ScheduleItem, Task } from '../types';
 
 interface AdminPortalProps {
   guests: Guest[];
@@ -20,6 +21,10 @@ interface AdminPortalProps {
   vendors: Vendor[];
   schedule: ScheduleItem[];
   settings?: WeddingSettings;
+  tasks: Task[];
+  onAddTask: (task: Omit<Task, 'id'>) => void;
+  onUpdateTaskStatus: (taskId: string, status: Task['status']) => void;
+  onDeleteTask: (taskId: string) => void;
   onUpdateSettings: (settings: Partial<WeddingSettings>) => void;
   onRefreshData?: () => void;
   
@@ -56,6 +61,10 @@ export default function AdminPortal({
   vendors,
   schedule,
   settings,
+  tasks,
+  onAddTask,
+  onUpdateTaskStatus,
+  onDeleteTask,
   onUpdateSettings,
   onRefreshData,
   onAddGuest,
@@ -78,7 +87,7 @@ export default function AdminPortal({
   onResetDatabase,
   fullDataBackup
 }: AdminPortalProps) {
-  const [activeTab, setActiveTab] = useState<'guests' | 'seating' | 'budget' | 'vendors' | 'backup' | 'reminders' | 'schedule'>('guests');
+  const [activeTab, setActiveTab] = useState<'guests' | 'seating' | 'budget' | 'vendors' | 'backup' | 'reminders' | 'schedule' | 'tasks'>('guests');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [pdfOptions, setPdfOptions] = useState({
     summary: true,
@@ -882,6 +891,7 @@ Best,
           { key: 'budget', label: 'Budget Expenses', icon: DollarSign },
           { key: 'vendors', label: 'Vendor Contacts', icon: Briefcase },
           { key: 'schedule', label: 'Coordinated Timeline', icon: Calendar },
+          { key: 'tasks', label: 'Planning Tasks', icon: CheckSquare },
           { key: 'backup', label: 'Export & Settings', icon: Download }
         ].map(tab => {
           const Icon = tab.icon;
@@ -2817,8 +2827,32 @@ Best,
               <Scheduler
                 schedule={schedule}
                 userRole="admin"
+                isAdminView={true}
                 onAddScheduleItem={onAddScheduleItem}
                 onDeleteScheduleItem={onDeleteScheduleItem}
+              />
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'tasks' && (
+          <div className="space-y-6 animate-fade-in bg-white border border-slate-200/85 rounded-3xl p-6 shadow-sm">
+            <div>
+              <h2 className="text-lg font-display font-bold text-slate-900 flex items-center gap-2 tracking-tight">
+                <CheckSquare className="w-5 h-5 text-slate-500" />
+                Color-Coded Planning Tasks (Admin View)
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
+                Add, manage, and edit tasks categorized by stages. Only admins and the wedding couple can view and change these planning tasks.
+              </p>
+            </div>
+            <div className="border-t border-slate-100 pt-6">
+              <TaskBoard
+                tasks={tasks}
+                isAdmin={true}
+                onAddTask={onAddTask}
+                onUpdateTaskStatus={onUpdateTaskStatus}
+                onDeleteTask={onDeleteTask}
               />
             </div>
           </div>

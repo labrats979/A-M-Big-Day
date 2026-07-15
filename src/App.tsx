@@ -643,23 +643,6 @@ export default function App() {
                 );
               })}
             </div>
-
-            {/* Profile pill box */}
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-              <div className="text-right hidden md:block">
-                <p className="text-[11px] font-bold text-slate-800 leading-none">{userName}</p>
-                <span className="text-[9px] font-mono text-slate-400 capitalize">
-                  {userRole === 'bridesmaid' ? 'lady side' : userRole}
-                </span>
-              </div>
-              <button
-                onClick={handleSignOut}
-                title="Sign Out / Switch Name"
-                className="p-2 hover:bg-slate-100 hover:text-slate-900 text-slate-400 rounded-lg transition-colors cursor-pointer"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
           </div>
         </div>
       </header>
@@ -689,7 +672,7 @@ export default function App() {
                   <div className="md:col-span-8 bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-4">
                     <div className="space-y-2">
                       <span className="text-[9px] font-mono uppercase tracking-widest text-slate-400 bg-slate-50 px-2 py-1 rounded-md font-bold">Coordination Workspace</span>
-                      <h2 className="font-display text-xl font-bold text-slate-950 tracking-tight mt-1.5">Welcome to the Portal, {userName}!</h2>
+                      <h2 className="font-display text-xl font-bold text-slate-950 tracking-tight mt-1.5">Welcome to {data.settings?.aboutCoupleNames || "Alex & Morgan"}'s Wedding Portal.</h2>
                       <p className="text-xs text-slate-600 leading-relaxed font-medium">
                         This digital wedding coordinator tracks attendance list rosters, seating allocations, budget expenses, schedule coordination, and real-time announcements. Use the navigation buttons in the top right to explore your tasks or chat with other groomsmen and bridesmaids.
                       </p>
@@ -721,17 +704,15 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Shared Appointments & Calendar Section */}
-                <CalendarView />
-
-                {/* Color-Coded Tasks */}
-                <TaskBoard
-                  tasks={data.tasks}
-                  isAdmin={userRole === 'admin'}
-                  onAddTask={handleAddTask}
-                  onUpdateTaskStatus={handleUpdateTaskStatus}
-                  onDeleteTask={handleDeleteTask}
-                />
+                {/* Shared Coordinated Schedule & Duties */}
+                <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-sm">
+                  <Scheduler
+                    schedule={data.schedule}
+                    userRole={userRole}
+                    onAddScheduleItem={handleAddScheduleItem}
+                    onDeleteScheduleItem={handleDeleteScheduleItem}
+                  />
+                </div>
               </div>
             )}
 
@@ -876,6 +857,10 @@ export default function App() {
                   vendors={data.vendors}
                   schedule={data.schedule}
                   settings={data.settings}
+                  tasks={data.tasks}
+                  onAddTask={handleAddTask}
+                  onUpdateTaskStatus={handleUpdateTaskStatus}
+                  onDeleteTask={handleDeleteTask}
                   
                   onAddGuest={handleAddGuest}
                   onDeleteGuest={handleDeleteGuest}
