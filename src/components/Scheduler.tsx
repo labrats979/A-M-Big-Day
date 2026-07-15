@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ScheduleItem, UserRole } from '../types';
-import { Clock, MapPin, Plus, Trash2, Calendar, Users } from 'lucide-react';
+import { Clock, MapPin, Plus, Trash2, Calendar, Users, Printer } from 'lucide-react';
 
 interface SchedulerProps {
   schedule: ScheduleItem[];
@@ -79,25 +79,38 @@ export default function Scheduler({
           </p>
         </div>
 
-        {/* View Filter Toggles */}
-        <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl self-start md:self-auto">
-          {[
-            { key: 'all', label: 'All Events' },
-            { key: 'groomsman', label: 'Groomsmen Side' },
-            { key: 'bridesmaid', label: 'Lady Side' }
-          ].map(opt => (
-            <button
-              key={opt.key}
-              onClick={() => setFilter(opt.key as any)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                filter === opt.key
-                  ? 'bg-white text-slate-900 shadow-sm font-bold'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+        {/* View Filter Toggles & Print Actions */}
+        <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+          <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
+            {[
+              { key: 'all', label: 'All Events' },
+              { key: 'groomsman', label: 'Groomsmen Side' },
+              { key: 'bridesmaid', label: 'Lady Side' }
+            ].map(opt => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setFilter(opt.key as any)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer ${
+                  filter === opt.key
+                    ? 'bg-white text-slate-900 shadow-sm font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-950 border border-slate-200 hover:border-slate-300 font-semibold text-xs px-3.5 py-2.5 rounded-xl transition-all shadow-xs cursor-pointer"
+            title="Open printable master timeline"
+          >
+            <Printer className="w-4 h-4 text-slate-500" />
+            Print Schedule
+          </button>
         </div>
       </div>
 
@@ -263,6 +276,167 @@ export default function Scheduler({
             </form>
           </div>
         )}
+      </div>
+
+      {/* Print-only schedule section */}
+      <div id="print-schedule-root" className="hidden">
+        <style dangerouslySetInnerHTML={{__html: `
+          @media print {
+            body {
+              background: #ffffff !important;
+              color: #000000 !important;
+              font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+              font-size: 11pt !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            /* Hide entire normal page */
+            body > * {
+              display: none !important;
+            }
+            /* Show ONLY our printable schedule */
+            #print-schedule-root {
+              display: block !important;
+              visibility: visible !important;
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 100% !important;
+              padding: 20mm !important;
+              box-sizing: border-box !important;
+            }
+            .print-table {
+              width: 100% !important;
+              border-collapse: collapse !important;
+              margin-top: 15px !important;
+              margin-bottom: 30px !important;
+            }
+            .print-table th {
+              background-color: #f1f5f9 !important;
+              color: #0f172a !important;
+              border-bottom: 2px solid #cbd5e1 !important;
+              font-weight: bold !important;
+              text-align: left !important;
+              padding: 10px 8px !important;
+              font-size: 10pt !important;
+              text-transform: uppercase !important;
+              letter-spacing: 0.5px !important;
+            }
+            .print-table td {
+              border-bottom: 1px solid #e2e8f0 !important;
+              padding: 12px 8px !important;
+              vertical-align: top !important;
+              font-size: 10pt !important;
+            }
+            .print-header {
+              border-bottom: 3px double #94a3b8 !important;
+              padding-bottom: 15px !important;
+              margin-bottom: 25px !important;
+            }
+            .print-title {
+              font-size: 24pt !important;
+              font-weight: bold !important;
+              color: #0f172a !important;
+              margin: 0 0 5px 0 !important;
+              letter-spacing: -0.5px !important;
+            }
+            .print-subtitle {
+              font-size: 11pt !important;
+              color: #475569 !important;
+              margin: 0 !important;
+              font-style: italic !important;
+            }
+            .print-badge {
+              display: inline-block !important;
+              font-size: 8pt !important;
+              font-weight: bold !important;
+              text-transform: uppercase !important;
+              border: 1px solid #94a3b8 !important;
+              padding: 2px 6px !important;
+              border-radius: 4px !important;
+              background: #f8fafc !important;
+            }
+            .print-notes-section {
+              margin-top: 40px !important;
+              border-top: 1px dashed #cbd5e1 !important;
+              padding-top: 20px !important;
+            }
+            .print-notes-title {
+              font-size: 12pt !important;
+              font-weight: bold !important;
+              color: #334155 !important;
+              margin-bottom: 15px !important;
+            }
+            .print-notes-lines {
+              height: 120px !important;
+              border: 1px solid #cbd5e1 !important;
+              border-radius: 8px !important;
+              background-image: linear-gradient(#f1f5f9 1px, transparent 1px) !important;
+              background-size: 100% 24px !important;
+              line-height: 24px !important;
+            }
+          }
+        `}} />
+
+        <div className="print-header">
+          <h1 className="print-title">Official Wedding Timeline & Duties Itinerary</h1>
+          <p className="print-subtitle">
+            Master Coordination Timeline — Generated on {new Date().toLocaleDateString()} at {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+          </p>
+        </div>
+
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th style={{ width: '15%' }}>Time</th>
+              <th style={{ width: '35%' }}>Event / Duty Title</th>
+              <th style={{ width: '20%' }}>Location</th>
+              <th style={{ width: '15%' }}>Designated Party</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedSchedule.length === 0 ? (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center', color: '#64748b', fontStyle: 'italic', padding: '24px' }}>
+                  No duties or events scheduled on the master timeline.
+                </td>
+              </tr>
+            ) : (
+              sortedSchedule.map((item) => {
+                const isGroomsman = item.targetSide === 'groomsman';
+                const isBridesmaid = item.targetSide === 'bridesmaid';
+                const partyLabel = item.targetSide === 'all' 
+                  ? 'All Parties' 
+                  : isGroomsman 
+                    ? 'Groomsmen' 
+                    : 'Lady Side';
+
+                return (
+                  <tr key={item.id}>
+                    <td style={{ fontWeight: 'bold', color: '#0f172a' }}>{item.time}</td>
+                    <td>
+                      <div style={{ fontWeight: 'bold', color: '#0f172a' }}>{item.title}</div>
+                      {item.description && (
+                        <div style={{ fontSize: '9pt', color: '#475569', marginTop: '4px', fontStyle: 'italic', lineHeight: '1.4' }}>
+                          {item.description}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ color: '#334155' }}>{item.location}</td>
+                    <td>
+                      <span className="print-badge">{partyLabel}</span>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+
+        <div className="print-notes-section">
+          <h3 className="print-notes-title">Coordinator & Party Notes</h3>
+          <div className="print-notes-lines"></div>
+        </div>
       </div>
     </div>
   );

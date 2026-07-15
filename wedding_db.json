@@ -192,48 +192,7 @@
       "notes": "White and pastel roses, eucalyptus runner for head table."
     }
   ],
-  "schedule": [
-    {
-      "id": "s1",
-      "title": "Groom & Groomsmen Tux Fitting",
-      "description": "Final adjustments and pickup of rented tuxedos. All groomsmen must attend.",
-      "time": "10:00 AM",
-      "location": "The Tailor's Shop, 12 Main St.",
-      "targetSide": "groomsman"
-    },
-    {
-      "id": "s2",
-      "title": "Hair & Makeup Prep",
-      "description": "Bridesmaids and bride hair and beauty session. Breakfast and mimosas provided.",
-      "time": "08:30 AM",
-      "location": "Grand Bridal Suite, Elegance Estates",
-      "targetSide": "bridesmaid"
-    },
-    {
-      "id": "s3",
-      "title": "Pre-Ceremony Photoshoot",
-      "description": "Separate sessions for Groomsmen and Bridesmaids. Do not cross paths!",
-      "time": "01:30 PM",
-      "location": "Garden Path & South Lawn",
-      "targetSide": "all"
-    },
-    {
-      "id": "s4",
-      "title": "Groomsmen Final Setup Check",
-      "description": "Ensure place cards, guest book, and party favors are positioned correctly.",
-      "time": "03:00 PM",
-      "location": "Reception Hall",
-      "targetSide": "groomsman"
-    },
-    {
-      "id": "s5",
-      "title": "Ceremony Rehearsal & Walkthrough",
-      "description": "Quick run-through of the processional and recessional with the coordinator.",
-      "time": "04:30 PM",
-      "location": "Ceremony Arch, West Gardens",
-      "targetSide": "all"
-    }
-  ],
+  "schedule": [],
   "messages": [
     {
       "id": "m1",

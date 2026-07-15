@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { Guest, Table, Expense, Vendor, UserRole, WeddingSettings, GalleryItem } from '../types';
 import SeatingPlanner from './SeatingPlanner';
 import BudgetManager from './BudgetManager';
 import VendorManager from './VendorManager';
@@ -11,11 +10,15 @@ import {
   Pencil, Mail, Send, AlertCircle, RefreshCw, CheckSquare, Square, Bell, History
 } from 'lucide-react';
 
+import Scheduler from './Scheduler';
+import { Guest, Table, Expense, Vendor, UserRole, WeddingSettings, GalleryItem, ScheduleItem } from '../types';
+
 interface AdminPortalProps {
   guests: Guest[];
   tables: Table[];
   expenses: Expense[];
   vendors: Vendor[];
+  schedule: ScheduleItem[];
   settings?: WeddingSettings;
   onUpdateSettings: (settings: Partial<WeddingSettings>) => void;
   onRefreshData?: () => void;
@@ -39,6 +42,9 @@ interface AdminPortalProps {
   onAddVendor: (vendor: Omit<Vendor, 'id'>) => void;
   onDeleteVendor: (vendorId: string) => void;
   
+  onAddScheduleItem: (item: Omit<ScheduleItem, 'id'>) => void;
+  onDeleteScheduleItem: (itemId: string) => void;
+  
   onResetDatabase: () => void;
   fullDataBackup: any;
 }
@@ -48,6 +54,7 @@ export default function AdminPortal({
   tables,
   expenses,
   vendors,
+  schedule,
   settings,
   onUpdateSettings,
   onRefreshData,
@@ -66,10 +73,21 @@ export default function AdminPortal({
   onTogglePaid,
   onAddVendor,
   onDeleteVendor,
+  onAddScheduleItem,
+  onDeleteScheduleItem,
   onResetDatabase,
   fullDataBackup
 }: AdminPortalProps) {
-  const [activeTab, setActiveTab] = useState<'guests' | 'seating' | 'budget' | 'vendors' | 'backup' | 'reminders'>('guests');
+  const [activeTab, setActiveTab] = useState<'guests' | 'seating' | 'budget' | 'vendors' | 'backup' | 'reminders' | 'schedule'>('guests');
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [pdfOptions, setPdfOptions] = useState({
+    summary: true,
+    guests: true,
+    tables: true,
+    budget: true,
+    vendors: true,
+    schedule: true,
+  });
 
   // Toggle between viewing Flat list vs Grouped by Family
   const [directoryView, setDirectoryView] = useState<'all' | 'family'>('family');
@@ -537,11 +555,13 @@ Best,
       return false;
     };
 
+    const coupleName = aboutCoupleNames || settings?.aboutCoupleNames || "Alex & Morgan";
+
     // Title / Header
     doc.setFont("helvetica", "bold");
     doc.setFontSize(20);
     doc.setTextColor(15, 23, 42); // slate-900
-    doc.text("A & M Wedding Coordinator Report", 20, y);
+    doc.text(`${coupleName}'s Wedding Coordinator Report`, 20, y);
     y += 10;
 
     doc.setFont("helvetica", "normal");
@@ -550,182 +570,290 @@ Best,
     doc.text(`Complete Wedding Coordination Database Backup`, 20, y);
     y += 14;
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.setTextColor(15, 23, 42);
-    doc.text("Wedding Summary Statistics", 20, y);
-    y += 8;
+    let sectionNum = 1;
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(51, 65, 85); // slate-700
-    doc.text(`Backup Date: ${new Date().toLocaleString()}`, 20, y);
-    y += 6;
-    doc.text(`Total Registered Guests: ${guests.length} (${guests.filter(g => g.rsvpStatus === 'going').length} Going, ${guests.filter(g => g.rsvpStatus === 'pending').length} Pending, ${guests.filter(g => g.rsvpStatus === 'declined').length} Declined)`, 20, y);
-    y += 6;
-    doc.text(`Total Floor Plan Tables: ${tables.length}`, 20, y);
-    y += 6;
-    
-    const totalBudget = expenses.reduce((sum, e) => sum + e.amount, 0);
-    const paidBudget = expenses.filter(e => e.paid).reduce((sum, e) => sum + e.amount, 0);
-    doc.text(`Total Expenses Logged: $${totalBudget.toLocaleString()} ($${paidBudget.toLocaleString()} Paid, $${(totalBudget - paidBudget).toLocaleString()} Remaining)`, 20, y);
-    y += 6;
-    doc.text(`Total Active Vendors: ${vendors.length}`, 20, y);
-    y += 15;
+    // Wedding Summary Statistics
+    if (pdfOptions.summary) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.text("Wedding Summary Statistics", 20, y);
+      y += 8;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(51, 65, 85); // slate-700
+      doc.text(`Backup Date: ${new Date().toLocaleString()}`, 20, y);
+      y += 6;
+      doc.text(`Total Registered Guests: ${guests.length} (${guests.filter(g => g.rsvpStatus === 'going').length} Going, ${guests.filter(g => g.rsvpStatus === 'pending').length} Pending, ${guests.filter(g => g.rsvpStatus === 'declined').length} Declined)`, 20, y);
+      y += 6;
+      doc.text(`Total Floor Plan Tables: ${tables.length}`, 20, y);
+      y += 6;
+      
+      const totalBudget = expenses.reduce((sum, e) => sum + e.amount, 0);
+      const paidBudget = expenses.filter(e => e.paid).reduce((sum, e) => sum + e.amount, 0);
+      doc.text(`Total Expenses Logged: $${totalBudget.toLocaleString()} ($${paidBudget.toLocaleString()} Paid, $${(totalBudget - paidBudget).toLocaleString()} Remaining)`, 20, y);
+      y += 6;
+      doc.text(`Total Active Vendors: ${vendors.length}`, 20, y);
+      y += 15;
+    }
 
     // Guest Directory
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text("1. Guest & Seating List Directory", 20, y);
-    y += 8;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text("Name", 20, y);
-    doc.text("Role", 75, y);
-    doc.text("RSVP Status", 115, y);
-    doc.text("Table Seating", 150, y);
-    y += 4;
-    doc.setDrawColor(226, 232, 240); // slate-200
-    doc.line(20, y, pageWidth - 20, y);
-    y += 6;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(51, 65, 85);
-    guests.forEach((g) => {
-      checkPage(8);
-      doc.text(g.name, 20, y);
-      
-      const roleText = g.role === 'bridesmaid' ? 'lady side' : g.role;
-      doc.text(roleText, 75, y);
-      doc.text(g.rsvpStatus, 115, y);
-      
-      const tableAssigned = g.tableId ? tables.find(t => t.id === g.tableId) : null;
-      const seatingText = tableAssigned 
-        ? `${tableAssigned.name} (Seat ${g.seatIndex !== null ? g.seatIndex + 1 : '?'})` 
-        : "Unseated";
-      doc.text(seatingText, 150, y);
-      y += 6.5;
-    });
-
-    y += 12;
-
-    // Seating Layout
-    checkPage(30);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text("2. Table Seating Allocation", 20, y);
-    y += 8;
-
-    tables.forEach((t) => {
-      checkPage(20);
+    if (pdfOptions.guests) {
+      checkPage(30);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(14);
       doc.setTextColor(15, 23, 42);
-      doc.text(`${t.name} (${t.type === 'stage' ? 'Stage Fixture' : t.type?.replace('_', ' ') || 'Round Table'})`, 20, y);
-      y += 5;
+      doc.text(`${sectionNum++}. Guest & Seating List Directory`, 20, y);
+      y += 8;
 
-      const seatedGuests = guests.filter(g => g.tableId === t.id);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9.5);
-      doc.setTextColor(51, 65, 85);
-      
-      if (t.seatsCount === 0 || t.type === 'stage') {
-        doc.text("Administrative or decorative stage fixture (No table seats)", 25, y);
-        y += 6;
-      } else if (seatedGuests.length === 0) {
-        doc.text(`Empty - Total Capacity: ${t.seatsCount} seats`, 25, y);
-        y += 6;
-      } else {
-        const seatingList = Array.from({ length: t.seatsCount }).map((_, seatIdx) => {
-          const guestAtSeat = seatedGuests.find(g => g.seatIndex === seatIdx);
-          return `Seat ${seatIdx + 1}: ${guestAtSeat ? guestAtSeat.name : "— Empty —"}`;
-        });
-
-        for (let idx = 0; idx < seatingList.length; idx += 2) {
-          checkPage(6);
-          doc.text(seatingList[idx], 25, y);
-          if (seatingList[idx + 1]) {
-            doc.text(seatingList[idx + 1], 110, y);
-          }
-          y += 5.5;
-        }
-      }
-      y += 3;
-    });
-
-    y += 12;
-
-    // Budget & Expenses
-    checkPage(30);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text("3. Budget Expenses Allocation", 20, y);
-    y += 8;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text("Expense", 20, y);
-    doc.text("Category", 95, y);
-    doc.text("Amount", 145, y);
-    doc.text("Payment Status", 172, y);
-    y += 4;
-    doc.line(20, y, pageWidth - 20, y);
-    y += 6;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(51, 65, 85);
-    expenses.forEach((e) => {
-      checkPage(8);
-      doc.text(e.description, 20, y);
-      doc.text(e.category, 95, y);
-      doc.text(`$${e.amount.toLocaleString()}`, 145, y);
-      doc.text(e.paid ? "PAID" : "UNPAID", 172, y);
-      y += 6.5;
-    });
-
-    y += 12;
-
-    // Vendors
-    checkPage(30);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text("4. Wedding Vendor Directory", 20, y);
-    y += 8;
-
-    vendors.forEach((v) => {
-      checkPage(25);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text(`${v.name} (${v.service})`, 20, y);
-      y += 5;
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text("Name", 20, y);
+      doc.text("Role", 75, y);
+      doc.text("RSVP Status", 115, y);
+      doc.text("Table Seating", 150, y);
+      y += 4;
+      doc.setDrawColor(226, 232, 240); // slate-200
+      doc.line(20, y, pageWidth - 20, y);
+      y += 6;
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(51, 65, 85);
-      doc.text(`Contact Phone: ${v.contact || 'N/A'}  |  Email: ${v.email || 'N/A'}  |  Price: $${v.cost.toLocaleString()}`, 25, y);
-      y += 4.5;
-      if (v.notes) {
-        doc.setFont("helvetica", "italic");
-        doc.setFontSize(8.5);
-        doc.setTextColor(100, 116, 139);
-        doc.text(`Details: ${v.notes}`, 25, y);
+      guests.forEach((g) => {
+        checkPage(8);
+        doc.text(g.name, 20, y);
+        
+        const roleText = g.role === 'bridesmaid' ? 'lady side' : g.role;
+        doc.text(roleText, 75, y);
+        doc.text(g.rsvpStatus, 115, y);
+        
+        const tableAssigned = g.tableId ? tables.find(t => t.id === g.tableId) : null;
+        const seatingText = tableAssigned 
+          ? `${tableAssigned.name} (Seat ${g.seatIndex !== null ? g.seatIndex + 1 : '?'})` 
+          : "Unseated";
+        doc.text(seatingText, 150, y);
+        y += 6.5;
+      });
+
+      y += 12;
+    }
+
+    // Seating Layout
+    if (pdfOptions.tables) {
+      checkPage(30);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${sectionNum++}. Table Seating Allocation`, 20, y);
+      y += 8;
+
+      tables.forEach((t) => {
+        checkPage(20);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`${t.name} (${t.type === 'stage' ? 'Stage Fixture' : t.type?.replace('_', ' ') || 'Round Table'})`, 20, y);
+        y += 5;
+
+        const seatedGuests = guests.filter(g => g.tableId === t.id);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9.5);
+        doc.setTextColor(51, 65, 85);
+        
+        if (t.seatsCount === 0 || t.type === 'stage') {
+          doc.text("Administrative or decorative stage fixture (No table seats)", 25, y);
+          y += 6;
+        } else if (seatedGuests.length === 0) {
+          doc.text(`Empty - Total Capacity: ${t.seatsCount} seats`, 25, y);
+          y += 6;
+        } else {
+          const seatingList = Array.from({ length: t.seatsCount }).map((_, seatIdx) => {
+            const guestAtSeat = seatedGuests.find(g => g.seatIndex === seatIdx);
+            return `Seat ${seatIdx + 1}: ${guestAtSeat ? guestAtSeat.name : "— Empty —"}`;
+          });
+
+          for (let idx = 0; idx < seatingList.length; idx += 2) {
+            checkPage(6);
+            doc.text(seatingList[idx], 25, y);
+            if (seatingList[idx + 1]) {
+              doc.text(seatingList[idx + 1], 110, y);
+            }
+            y += 5.5;
+          }
+        }
+        y += 3;
+      });
+
+      y += 12;
+    }
+
+    // Budget & Expenses
+    if (pdfOptions.budget) {
+      checkPage(30);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${sectionNum++}. Budget Expenses Allocation`, 20, y);
+      y += 8;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text("Expense", 20, y);
+      doc.text("Category", 95, y);
+      doc.text("Amount", 145, y);
+      doc.text("Payment Status", 172, y);
+      y += 4;
+      doc.setDrawColor(226, 232, 240); // Reset draw color
+      doc.line(20, y, pageWidth - 20, y);
+      y += 6;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+      expenses.forEach((e) => {
+        checkPage(8);
+        doc.text(e.description, 20, y);
+        doc.text(e.category, 95, y);
+        doc.text(`$${e.amount.toLocaleString()}`, 145, y);
+        doc.text(e.paid ? "PAID" : "UNPAID", 172, y);
+        y += 6.5;
+      });
+
+      y += 12;
+    }
+
+    // Vendors
+    if (pdfOptions.vendors) {
+      checkPage(30);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${sectionNum++}. Wedding Vendor Directory`, 20, y);
+      y += 8;
+
+      vendors.forEach((v) => {
+        checkPage(25);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(15, 23, 42);
+        doc.text(`${v.name} (${v.service})`, 20, y);
+        y += 5;
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(51, 65, 85);
+        doc.text(`Contact Phone: ${v.contact || 'N/A'}  |  Email: ${v.email || 'N/A'}  |  Price: $${v.cost.toLocaleString()}`, 25, y);
         y += 4.5;
+        if (v.notes) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`Details: ${v.notes}`, 25, y);
+          y += 4.5;
+        }
+        y += 2;
+      });
+
+      y += 12;
+    }
+
+    // Coordinated Timeline Schedule
+    if (pdfOptions.schedule) {
+      checkPage(30);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`${sectionNum++}. Coordinated Timeline Schedule`, 20, y);
+      y += 8;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text("Time", 20, y);
+      doc.text("Event / Duty Title", 45, y);
+      doc.text("Location", 115, y);
+      doc.text("Party / Role", 155, y);
+      y += 4;
+      doc.setDrawColor(226, 232, 240);
+      doc.line(20, y, pageWidth - 20, y);
+      y += 6;
+
+      // Sort timeline
+      const sortedTimeline = [...schedule].sort((a, b) => {
+        const getMinutes = (t: string) => {
+          const parts = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
+          if (!parts) return 0;
+          let h = parseInt(parts[1], 10);
+          const m = parseInt(parts[2], 10);
+          const isPm = parts[3].toUpperCase() === 'PM';
+          if (isPm && h < 12) h += 12;
+          if (!isPm && h === 12) h = 0;
+          return h * 60 + m;
+        };
+        return getMinutes(a.time) - getMinutes(b.time);
+      });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+
+      if (sortedTimeline.length === 0) {
+        doc.text("No events scheduled on the master timeline.", 20, y);
+        y += 8;
+      } else {
+        sortedTimeline.forEach((item) => {
+          checkPage(18);
+          
+          doc.setFont("helvetica", "bold");
+          doc.text(item.time, 20, y);
+          
+          doc.setFont("helvetica", "bold");
+          doc.text(item.title, 45, y);
+          
+          doc.setFont("helvetica", "normal");
+          doc.text(item.location, 115, y);
+          
+          const groupName = item.targetSide === 'all' 
+            ? 'All Parties' 
+            : item.targetSide === 'groomsman' 
+              ? 'Groomsmen' 
+              : 'Lady Side';
+          doc.text(groupName, 155, y);
+          y += 5.5;
+
+          if (item.description) {
+            checkPage(10);
+            doc.setFont("helvetica", "italic");
+            doc.setFontSize(8);
+            doc.setTextColor(100, 116, 139);
+            const descLines = doc.splitTextToSize(item.description, pageWidth - 65);
+            doc.text(descLines, 45, y);
+            y += (descLines.length * 4) + 2;
+          }
+          
+          y += 3;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(9);
+          doc.setTextColor(51, 65, 85);
+        });
       }
-      y += 2;
-    });
+      y += 12;
+    }
+
+    if (sectionNum === 1) {
+      checkPage(20);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text("No sections selected for compilation.", 20, y);
+    }
 
     // Save the PDF
-    doc.save("wedding_coordination_report.pdf");
+    doc.save(`${coupleName.toLowerCase().replace(/[^a-z0-9]+/g, '_')}_coordination_report.pdf`);
   };
 
   // Grouping computation for families directory
@@ -753,6 +881,7 @@ Best,
           { key: 'seating', label: 'Venue Layout Seating', icon: Layout },
           { key: 'budget', label: 'Budget Expenses', icon: DollarSign },
           { key: 'vendors', label: 'Vendor Contacts', icon: Briefcase },
+          { key: 'schedule', label: 'Coordinated Timeline', icon: Calendar },
           { key: 'backup', label: 'Export & Settings', icon: Download }
         ].map(tab => {
           const Icon = tab.icon;
@@ -2639,7 +2768,7 @@ Best,
                   Export all guest logs, seating assignments, live budget summaries, and vendor contacts into a neatly typeset PDF document. Perfect for offline reference, printing, and hand-outs.
                 </p>
                 <button
-                  onClick={handleExportPDF}
+                  onClick={() => setIsExportModalOpen(true)}
                   className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
@@ -2667,6 +2796,104 @@ Best,
                 >
                   <RotateCcw className="w-4 h-4" />
                   Reset Database
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'schedule' && (
+          <div className="space-y-6 animate-fade-in bg-white border border-slate-200/85 rounded-3xl p-6 shadow-sm">
+            <div>
+              <h2 className="text-lg font-display font-bold text-slate-900 flex items-center gap-2 tracking-tight">
+                <Calendar className="w-5 h-5 text-slate-500" />
+                Coordinated Wedding Timeline (Admin View)
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
+                Add, manage, and edit tasks and events on the coordinated master timeline directly from the Admin controls. Your updates will sync instantly.
+              </p>
+            </div>
+            <div className="border-t border-slate-100 pt-6">
+              <Scheduler
+                schedule={schedule}
+                userRole="admin"
+                onAddScheduleItem={onAddScheduleItem}
+                onDeleteScheduleItem={onDeleteScheduleItem}
+              />
+            </div>
+          </div>
+        )}
+
+        {isExportModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[100] p-4 animate-fade-in">
+            <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xl max-w-md w-full p-6 space-y-6">
+              <div className="flex justify-between items-start">
+                <div className="space-y-1">
+                  <h3 className="font-display font-bold text-slate-900 text-lg flex items-center gap-2">
+                    <Download className="w-5 h-5 text-indigo-600" />
+                    Customize PDF Export
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Select which chapters to compile into your PDF document.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setIsExportModalOpen(false)}
+                  className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {[
+                  { key: 'summary', label: 'Wedding Summary Statistics', desc: 'Overview of guest counts, RSVPs, total budget, and coordinator stats.' },
+                  { key: 'guests', label: 'Guest & Seating List Directory', desc: 'Alphabetical and grouped rosters with table and seat assignments.' },
+                  { key: 'tables', label: 'Table Seating Allocation', desc: 'Detailed seating chart broken down table-by-table.' },
+                  { key: 'budget', label: 'Budget Expenses Allocation', desc: 'Itemized list of wedding expenses, costs, and payment status.' },
+                  { key: 'vendors', label: 'Wedding Vendor Directory', desc: 'Contact details, services, costs, and coordinator notes.' },
+                  { key: 'schedule', label: 'Coordinated Timeline Schedule', desc: 'Hourly duties, times, and venue coordinates.' },
+                ].map(item => (
+                  <label 
+                    key={item.key} 
+                    className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
+                      pdfOptions[item.key as keyof typeof pdfOptions]
+                        ? 'border-indigo-200 bg-indigo-50/20 text-indigo-950'
+                        : 'border-slate-100 hover:border-slate-200 bg-slate-50/30'
+                    }`}
+                  >
+                    <input 
+                      type="checkbox"
+                      checked={pdfOptions[item.key as keyof typeof pdfOptions]}
+                      onChange={(e) => setPdfOptions(prev => ({ ...prev, [item.key]: e.target.checked }))}
+                      className="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-bold block">{item.label}</span>
+                      <span className="text-[10px] text-slate-500 leading-normal block">{item.desc}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsExportModalOpen(false)}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs py-2.5 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleExportPDF();
+                    setIsExportModalOpen(false);
+                  }}
+                  className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Generate Report
                 </button>
               </div>
             </div>

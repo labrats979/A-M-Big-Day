@@ -1,0 +1,21 @@
+{
+  "entities": {
+    "SiteConfig": {
+      "title": "SiteConfig",
+      "description": "A database-agnostic container for web application configuration records",
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "array",
+          "description": "An array of custom records such as testimonials, portfolio slider configurations, or user leads"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "site_configs/{configId}": {
+      "schema": "SiteConfig",
+      "description": "Dynamic custom data configurations for the business landing page, lawn mower quotes, and custom portfolio sections"
+    }
+  }
+}

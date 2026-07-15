@@ -236,6 +236,22 @@ export default function App() {
     }
   };
 
+  const handleUpdateGuest = async (updatedGuest: Guest) => {
+    try {
+      const res = await fetch('/api/guests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedGuest)
+      });
+      if (res.ok) {
+        const updatedGuests = await res.json();
+        setData(prev => ({ ...prev, guests: updatedGuests }));
+      }
+    } catch (err) {
+      console.warn('Error updating guest:', err);
+    }
+  };
+
   // Table handlers
   const handleAddTable = async (newTable: Omit<Table, 'id'>) => {
     try {
@@ -858,11 +874,13 @@ export default function App() {
                   tables={data.tables}
                   expenses={data.expenses}
                   vendors={data.vendors}
+                  schedule={data.schedule}
                   settings={data.settings}
                   
                   onAddGuest={handleAddGuest}
                   onDeleteGuest={handleDeleteGuest}
                   onUpdateGuestRSVP={handleUpdateGuestRSVP}
+                  onUpdateGuest={handleUpdateGuest}
                   
                   onAddTable={handleAddTable}
                   onDeleteTable={handleDeleteTable}
@@ -877,6 +895,8 @@ export default function App() {
                   
                   onAddVendor={handleAddVendor}
                   onDeleteVendor={handleDeleteVendor}
+                  onAddScheduleItem={handleAddScheduleItem}
+                  onDeleteScheduleItem={handleDeleteScheduleItem}
                   onResetDatabase={handleResetDatabase}
                   onUpdateSettings={handleUpdateSettings}
                   onRefreshData={fetchWeddingData}

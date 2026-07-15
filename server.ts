@@ -3,13 +3,34 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, getDoc, setDoc } from "firebase/firestore";
 import { WeddingData, Guest, Table, Expense, Vendor, ScheduleItem, Message, Task } from "./src/types";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
-const DB_FILE = path.join(process.cwd(), "wedding_db.json");
+
+// Read Firebase Config from config file
+const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+if (!fs.existsSync(configPath)) {
+  throw new Error(`Firebase config file not found at ${configPath}. Please configure Firebase first.`);
+}
+const firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+
+// Initialize Firebase App
+const firebaseApp = initializeApp({
+  apiKey: firebaseConfig.apiKey,
+  authDomain: firebaseConfig.authDomain,
+  projectId: firebaseConfig.projectId,
+  storageBucket: firebaseConfig.storageBucket,
+  messagingSenderId: firebaseConfig.messagingSenderId,
+  appId: firebaseConfig.appId
+});
+
+// Initialize Firestore with custom database ID
+const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || "(default)");
 
 app.use(express.json({ limit: "10mb" }));
 
@@ -48,13 +69,7 @@ const initialData: WeddingData = {
     { id: "v3", name: "Beat Drop DJs", service: "Entertainment", contact: "+1 (555) 444-2211", email: "booking@beatdropdjs.com", cost: 1800, notes: "Requests accepted. Includes wireless mics for speeches." },
     { id: "v4", name: "Blossom & Vine", service: "Floral & Decor", contact: "+1 (555) 888-9900", email: "hello@blossomvine.com", cost: 2200, notes: "White and pastel roses, eucalyptus runner for head table." },
   ],
-  schedule: [
-    { id: "s1", title: "Groom & Groomsmen Tux Fitting", description: "Final adjustments and pickup of rented tuxedos. All groomsmen must attend.", time: "10:00 AM", location: "The Tailor's Shop, 12 Main St.", targetSide: "groomsman" },
-    { id: "s2", title: "Hair & Makeup Prep", description: "Bridesmaids and bride hair and beauty session. Breakfast and mimosas provided.", time: "08:30 AM", location: "Grand Bridal Suite, Elegance Estates", targetSide: "bridesmaid" },
-    { id: "s3", title: "Pre-Ceremony Photoshoot", description: "Separate sessions for Groomsmen and Bridesmaids. Do not cross paths!", time: "01:30 PM", location: "Garden Path & South Lawn", targetSide: "all" },
-    { id: "s4", title: "Groomsmen Final Setup Check", description: "Ensure place cards, guest book, and party favors are positioned correctly.", time: "03:00 PM", location: "Reception Hall", targetSide: "groomsman" },
-    { id: "s5", title: "Ceremony Rehearsal & Walkthrough", description: "Quick run-through of the processional and recessional with the coordinator.", time: "04:30 PM", location: "Ceremony Arch, West Gardens", targetSide: "all" },
-  ],
+  schedule: [],
   messages: [
     { id: "m1", senderName: "Alex Johnson", role: "groomsman", content: "Just picked up the tuxedos! They fit perfectly. See you guys at rehearsal.", timestamp: "2026-07-12T10:15:00Z" },
     { id: "m2", senderName: "Sophia Martinez", role: "bridesmaid", content: "Florist just arrived with the bouquets, they are beautiful! Can't wait for tomorrow.", timestamp: "2026-07-12T11:42:00Z" },
@@ -107,47 +122,34 @@ const initialData: WeddingData = {
   }
 };
 
+// Helper functions to read/write Firestore DB
 // -------------------------------------------------------------------------
-// Helper functions to read/write JSON DB
-// -------------------------------------------------------------------------
-let memoryData: WeddingData | null = null;
+const docRef = doc(db, "site_configs", "wedding_data");
 
-function getWeddingData(): WeddingData {
+async function getWeddingData(): Promise<WeddingData> {
   try {
-    if (fs.existsSync(DB_FILE)) {
-      const dataStr = fs.readFileSync(DB_FILE, "utf-8");
-      if (dataStr.trim()) {
-        const parsed = JSON.parse(dataStr);
-        if (parsed && Array.isArray(parsed.guests)) {
-          memoryData = parsed;
-          return parsed;
-        }
-      }
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as WeddingData;
     }
   } catch (err) {
-    console.error("Error reading database file, resetting to initial seed:", err);
+    console.error("Error reading database from Firestore, using initial seed:", err);
   }
   
-  if (memoryData) {
-    return memoryData;
+  // Document doesn't exist or errored, initialize with seed
+  try {
+    await setDoc(docRef, initialData);
+  } catch (err) {
+    console.error("Error initializing Firestore document:", err);
   }
-
-  // File is missing or corrupted, overwrite with initial seed
-  memoryData = { ...initialData };
-  saveWeddingData(initialData);
-  return initialData;
+  return { ...initialData };
 }
 
-function saveWeddingData(data: WeddingData) {
-  memoryData = data;
+async function saveWeddingData(data: WeddingData) {
   try {
-    const dir = path.dirname(DB_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
+    await setDoc(docRef, data);
   } catch (err) {
-    console.error("Error writing database file, keeping in memory:", err);
+    console.error("Error writing database to Firestore:", err);
   }
 }
 
@@ -156,8 +158,8 @@ function saveWeddingData(data: WeddingData) {
 // -------------------------------------------------------------------------
 
 // Retrieve entire state (supporting both data and date URLs to prevent 404s)
-app.get(["/api/wedding-data", "/api/wedding-date"], (req, res) => {
-  const data = getWeddingData();
+app.get(["/api/wedding-data", "/api/wedding-date"], async (req, res) => {
+  const data = await getWeddingData();
   if (!data.notificationLogs) {
     data.notificationLogs = [];
   }
@@ -165,38 +167,38 @@ app.get(["/api/wedding-data", "/api/wedding-date"], (req, res) => {
 });
 
 // Update standard full state (supporting both data and date URLs)
-app.post(["/api/wedding-data", "/api/wedding-date"], (req, res) => {
+app.post(["/api/wedding-data", "/api/wedding-date"], async (req, res) => {
   const data = req.body as WeddingData;
   if (!data || !Array.isArray(data.guests)) {
     return res.status(400).json({ error: "Invalid data format" });
   }
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json({ success: true, message: "Full state saved successfully" });
 });
 
 // Reset database
-app.post("/api/reset", (req, res) => {
-  saveWeddingData(initialData);
+app.post("/api/reset", async (req, res) => {
+  await saveWeddingData(initialData);
   res.json(initialData);
 });
 
 // Update settings
-app.post("/api/settings", (req, res) => {
+app.post("/api/settings", async (req, res) => {
   const settings = req.body;
-  const data = getWeddingData();
-  data.settings = { ...data.settings, ...settings };
-  saveWeddingData(data);
+  const data = await getWeddingData();
+  data.settings = { ...(data.settings || {}), ...settings };
+  await saveWeddingData(data);
   res.json(data);
 });
 
 // Guest CRUD
-app.post("/api/guests", (req, res) => {
+app.post("/api/guests", async (req, res) => {
   const guest = req.body as Guest;
   if (!guest.name) {
     return res.status(400).json({ error: "Guest name is required" });
   }
   
-  const data = getWeddingData();
+  const data = await getWeddingData();
   const existingIdx = data.guests.findIndex(g => g.id === guest.id);
   
   // Anti-duplication name check for new guests (or if someone is signing up / adding RSVP)
@@ -220,16 +222,16 @@ app.post("/api/guests", (req, res) => {
     data.guests.push(newGuest);
   }
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.guests);
 });
 
-app.post("/api/guests/bulk-rsvp", (req, res) => {
+app.post("/api/guests/bulk-rsvp", async (req, res) => {
   const updates = req.body as { id: string; rsvpStatus: Guest['rsvpStatus'] }[];
   if (!Array.isArray(updates)) {
     return res.status(400).json({ error: "Updates must be an array" });
   }
-  const data = getWeddingData();
+  const data = await getWeddingData();
   updates.forEach(update => {
     const existingIdx = data.guests.findIndex(g => g.id === update.id);
     if (existingIdx > -1) {
@@ -239,26 +241,26 @@ app.post("/api/guests/bulk-rsvp", (req, res) => {
       };
     }
   });
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.guests);
 });
 
-app.delete("/api/guests/:id", (req, res) => {
+app.delete("/api/guests/:id", async (req, res) => {
   const { id } = req.params;
-  const data = getWeddingData();
+  const data = await getWeddingData();
   data.guests = data.guests.filter(g => g.id !== id);
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.guests);
 });
 
 // Table CRUD
-app.post("/api/tables", (req, res) => {
+app.post("/api/tables", async (req, res) => {
   const table = req.body as Table;
   if (!table.name) {
     return res.status(400).json({ error: "Table name is required" });
   }
   
-  const data = getWeddingData();
+  const data = await getWeddingData();
   const existingIdx = data.tables.findIndex(t => t.id === table.id);
   
   if (existingIdx > -1) {
@@ -271,38 +273,38 @@ app.post("/api/tables", (req, res) => {
     data.tables.push(newTable);
   }
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.tables);
 });
 
-app.delete("/api/tables/:id", (req, res) => {
+app.delete("/api/tables/:id", async (req, res) => {
   const { id } = req.params;
-  const data = getWeddingData();
+  const data = await getWeddingData();
   data.tables = data.tables.filter(t => t.id !== id);
   // Clear guest table assignments for this table
   data.guests = data.guests.map(g => g.tableId === id ? { ...g, tableId: null, seatIndex: null } : g);
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json({ tables: data.tables, guests: data.guests });
 });
 
-app.post("/api/tables/clear-all", (req, res) => {
-  const data = getWeddingData();
+app.post("/api/tables/clear-all", async (req, res) => {
+  const data = await getWeddingData();
   data.tables = [];
   // Clear all guest table assignments
   data.guests = data.guests.map(g => ({ ...g, tableId: null, seatIndex: null }));
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json({ tables: data.tables, guests: data.guests });
 });
 
 // Bulk Guests assignment saving (no race conditions)
-app.post("/api/guests/bulk", (req, res) => {
+app.post("/api/guests/bulk", async (req, res) => {
   const updates = req.body as { id: string; tableId: string | null; seatIndex: number | null }[];
   if (!Array.isArray(updates)) {
     return res.status(400).json({ error: "Updates must be an array" });
   }
-  const data = getWeddingData();
+  const data = await getWeddingData();
   updates.forEach(update => {
     const existingIdx = data.guests.findIndex(g => g.id === update.id);
     if (existingIdx > -1) {
@@ -313,17 +315,17 @@ app.post("/api/guests/bulk", (req, res) => {
       };
     }
   });
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.guests);
 });
 
 // Bulk Tables saving (no race conditions)
-app.post("/api/tables/bulk", (req, res) => {
+app.post("/api/tables/bulk", async (req, res) => {
   const tablesToSave = req.body as Table[];
   if (!Array.isArray(tablesToSave)) {
     return res.status(400).json({ error: "Tables must be an array" });
   }
-  const data = getWeddingData();
+  const data = await getWeddingData();
   tablesToSave.forEach(table => {
     const existingIdx = data.tables.findIndex(t => t.id === table.id);
     if (existingIdx > -1) {
@@ -336,18 +338,18 @@ app.post("/api/tables/bulk", (req, res) => {
       data.tables.push(newTable);
     }
   });
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.tables);
 });
 
 // Expense CRUD
-app.post("/api/expenses", (req, res) => {
+app.post("/api/expenses", async (req, res) => {
   const expense = req.body as Expense;
   if (!expense.description) {
     return res.status(400).json({ error: "Expense description is required" });
   }
   
-  const data = getWeddingData();
+  const data = await getWeddingData();
   const existingIdx = data.expenses.findIndex(e => e.id === expense.id);
   
   if (existingIdx > -1) {
@@ -360,26 +362,26 @@ app.post("/api/expenses", (req, res) => {
     data.expenses.push(newExpense);
   }
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.expenses);
 });
 
-app.delete("/api/expenses/:id", (req, res) => {
+app.delete("/api/expenses/:id", async (req, res) => {
   const { id } = req.params;
-  const data = getWeddingData();
+  const data = await getWeddingData();
   data.expenses = data.expenses.filter(e => e.id !== id);
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.expenses);
 });
 
 // Vendor CRUD
-app.post("/api/vendors", (req, res) => {
+app.post("/api/vendors", async (req, res) => {
   const vendor = req.body as Vendor;
   if (!vendor.name) {
     return res.status(400).json({ error: "Vendor name is required" });
   }
   
-  const data = getWeddingData();
+  const data = await getWeddingData();
   const existingIdx = data.vendors.findIndex(v => v.id === vendor.id);
   
   if (existingIdx > -1) {
@@ -392,26 +394,26 @@ app.post("/api/vendors", (req, res) => {
     data.vendors.push(newVendor);
   }
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.vendors);
 });
 
-app.delete("/api/vendors/:id", (req, res) => {
+app.delete("/api/vendors/:id", async (req, res) => {
   const { id } = req.params;
-  const data = getWeddingData();
+  const data = await getWeddingData();
   data.vendors = data.vendors.filter(v => v.id !== id);
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.vendors);
 });
 
 // Schedule CRUD
-app.post("/api/schedule", (req, res) => {
+app.post("/api/schedule", async (req, res) => {
   const item = req.body as ScheduleItem;
   if (!item.title) {
     return res.status(400).json({ error: "Schedule item title is required" });
   }
   
-  const data = getWeddingData();
+  const data = await getWeddingData();
   const existingIdx = data.schedule.findIndex(s => s.id === item.id);
   
   if (existingIdx > -1) {
@@ -424,26 +426,26 @@ app.post("/api/schedule", (req, res) => {
     data.schedule.push(newItem);
   }
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.schedule);
 });
 
-app.delete("/api/schedule/:id", (req, res) => {
+app.delete("/api/schedule/:id", async (req, res) => {
   const { id } = req.params;
-  const data = getWeddingData();
+  const data = await getWeddingData();
   data.schedule = data.schedule.filter(s => s.id !== id);
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.schedule);
 });
 
 // Messages (real-time chat board)
-app.post("/api/messages", (req, res) => {
+app.post("/api/messages", async (req, res) => {
   const msg = req.body as Message;
   if (!msg.content && !msg.imageUrl) {
     return res.status(400).json({ error: "Message content or image is required" });
   }
   
-  const data = getWeddingData();
+  const data = await getWeddingData();
   const newMsg: Message = {
     id: "m_" + Math.random().toString(36).substring(2, 9),
     senderName: msg.senderName || "Anonymous",
@@ -459,19 +461,19 @@ app.post("/api/messages", (req, res) => {
     data.messages.shift();
   }
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.messages);
 });
 
 // Reminder Notifications Management CRUD & Triggers
-app.post("/api/reminders/send", (req, res) => {
+app.post("/api/reminders/send", async (req, res) => {
   const { guestIds, subject, messageBody, smsBody, channel, type } = req.body;
   
   if (!Array.isArray(guestIds)) {
     return res.status(400).json({ error: "Missing guestIds" });
   }
 
-  const data = getWeddingData();
+  const data = await getWeddingData();
   const matchedGuests = data.guests.filter(g => guestIds.includes(g.id));
   
   if (matchedGuests.length === 0) {
@@ -527,7 +529,7 @@ app.post("/api/reminders/send", (req, res) => {
     data.notificationLogs.pop();
   }
 
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json({
     success: true,
     guests: data.guests,
@@ -536,21 +538,21 @@ app.post("/api/reminders/send", (req, res) => {
   });
 });
 
-app.post("/api/reminders/clear-logs", (req, res) => {
-  const data = getWeddingData();
+app.post("/api/reminders/clear-logs", async (req, res) => {
+  const data = await getWeddingData();
   data.notificationLogs = [];
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json({ success: true, notificationLogs: [] });
 });
 
 // Task CRUD
-app.post("/api/tasks", (req, res) => {
+app.post("/api/tasks", async (req, res) => {
   const task = req.body as Task;
   if (!task.title) {
     return res.status(400).json({ error: "Task title is required" });
   }
   
-  const data = getWeddingData();
+  const data = await getWeddingData();
   const existingIdx = data.tasks.findIndex(t => t.id === task.id);
   
   if (existingIdx > -1) {
@@ -563,15 +565,15 @@ app.post("/api/tasks", (req, res) => {
     data.tasks.push(newTask);
   }
   
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.tasks);
 });
 
-app.delete("/api/tasks/:id", (req, res) => {
+app.delete("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
-  const data = getWeddingData();
+  const data = await getWeddingData();
   data.tasks = data.tasks.filter(t => t.id !== id);
-  saveWeddingData(data);
+  await saveWeddingData(data);
   res.json(data.tasks);
 });
 
