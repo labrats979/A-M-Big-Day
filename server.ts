@@ -18,16 +18,16 @@ app.use(express.json({ limit: "10mb" }));
 // -------------------------------------------------------------------------
 const initialData: WeddingData = {
   guests: [
-    { id: "g1", name: "Alex Johnson", role: "groomsman", rsvpStatus: "going", tableId: "t1", seatIndex: 0 },
-    { id: "g2", name: "David Miller", role: "groomsman", rsvpStatus: "going", tableId: "t1", seatIndex: 1 },
-    { id: "g3", name: "Sophia Martinez", role: "bridesmaid", rsvpStatus: "going", tableId: "t2", seatIndex: 0 },
-    { id: "g4", name: "Isabella Garcia", role: "bridesmaid", rsvpStatus: "going", tableId: "t2", seatIndex: 1 },
-    { id: "g5", name: "Emily Watson", role: "bridesmaid", rsvpStatus: "going", tableId: "t2", seatIndex: 2 },
-    { id: "g6", name: "John Doe", role: "guest", rsvpStatus: "going", tableId: "t3", seatIndex: 0 },
-    { id: "g7", name: "Jane Smith", role: "guest", rsvpStatus: "going", tableId: "t3", seatIndex: 1 },
-    { id: "g8", name: "Robert Chen", role: "guest", rsvpStatus: "pending", tableId: null, seatIndex: null },
-    { id: "g9", name: "Linda Thompson", role: "guest", rsvpStatus: "declined", tableId: null, seatIndex: null },
-    { id: "g10", name: "Marcus Brody", role: "groomsman", rsvpStatus: "pending", tableId: null, seatIndex: null },
+    { id: "g1", name: "Alex Johnson", role: "groomsman", rsvpStatus: "going", tableId: "t1", seatIndex: 0, email: "alex.johnson@example.com", phone: "555-0101" },
+    { id: "g2", name: "David Miller", role: "groomsman", rsvpStatus: "going", tableId: "t1", seatIndex: 1, email: "david.miller@example.com", phone: "555-0102" },
+    { id: "g3", name: "Sophia Martinez", role: "bridesmaid", rsvpStatus: "going", tableId: "t2", seatIndex: 0, email: "sophia.martinez@example.com", phone: "555-0103" },
+    { id: "g4", name: "Isabella Garcia", role: "bridesmaid", rsvpStatus: "going", tableId: "t2", seatIndex: 1, email: "isabella.garcia@example.com", phone: "555-0104" },
+    { id: "g5", name: "Emily Watson", role: "bridesmaid", rsvpStatus: "going", tableId: "t2", seatIndex: 2, email: "emily.watson@example.com", phone: "555-0105" },
+    { id: "g6", name: "John Doe", role: "guest", rsvpStatus: "going", tableId: "t3", seatIndex: 0, email: "john.doe@example.com", phone: "555-0106" },
+    { id: "g7", name: "Jane Smith", role: "guest", rsvpStatus: "going", tableId: "t3", seatIndex: 1, email: "jane.smith@example.com", phone: "555-0107" },
+    { id: "g8", name: "Robert Chen", role: "guest", rsvpStatus: "pending", tableId: null, seatIndex: null, email: "robert.chen@example.com", phone: "555-0108" },
+    { id: "g9", name: "Linda Thompson", role: "guest", rsvpStatus: "declined", tableId: null, seatIndex: null, email: "linda.thompson@example.com", phone: "555-0109" },
+    { id: "g10", name: "Marcus Brody", role: "groomsman", rsvpStatus: "pending", tableId: null, seatIndex: null, email: "marcus.brody@example.com", phone: "555-0110" },
   ],
   tables: [
     { id: "t1", name: "Groomsmen Table", x: 25, y: 35, seatsCount: 6 },
@@ -157,7 +157,11 @@ function saveWeddingData(data: WeddingData) {
 
 // Retrieve entire state (supporting both data and date URLs to prevent 404s)
 app.get(["/api/wedding-data", "/api/wedding-date"], (req, res) => {
-  res.json(getWeddingData());
+  const data = getWeddingData();
+  if (!data.notificationLogs) {
+    data.notificationLogs = [];
+  }
+  res.json(data);
 });
 
 // Update standard full state (supporting both data and date URLs)
@@ -457,6 +461,86 @@ app.post("/api/messages", (req, res) => {
   
   saveWeddingData(data);
   res.json(data.messages);
+});
+
+// Reminder Notifications Management CRUD & Triggers
+app.post("/api/reminders/send", (req, res) => {
+  const { guestIds, subject, messageBody, smsBody, channel, type } = req.body;
+  
+  if (!Array.isArray(guestIds)) {
+    return res.status(400).json({ error: "Missing guestIds" });
+  }
+
+  const data = getWeddingData();
+  const matchedGuests = data.guests.filter(g => guestIds.includes(g.id));
+  
+  if (matchedGuests.length === 0) {
+    return res.status(400).json({ error: "No matching guests found" });
+  }
+
+  const nowStr = new Date().toISOString();
+  
+  // Mark guests with lastReminderSent timestamp
+  data.guests = data.guests.map(g => {
+    if (guestIds.includes(g.id)) {
+      return {
+        ...g,
+        lastReminderSent: nowStr
+      };
+    }
+    return g;
+  });
+
+  const selectedChannel = channel || "email";
+  let finalSubject = subject || "RSVP Wedding Reminder";
+  let finalBody = messageBody || "";
+
+  if (selectedChannel === "sms") {
+    finalSubject = "RSVP SMS Reminder";
+    finalBody = smsBody || messageBody || "";
+  } else if (selectedChannel === "both") {
+    finalSubject = `${subject || "RSVP Wedding Reminder"} & SMS`;
+    finalBody = `[Email]: ${messageBody || ""}\n\n[SMS]: ${smsBody || ""}`;
+  }
+
+  // Create log entry
+  const recipientNames = matchedGuests.map(g => g.name);
+  const newLog = {
+    id: "log_" + Math.random().toString(36).substring(2, 9),
+    timestamp: nowStr,
+    subject: finalSubject,
+    messageBody: finalBody,
+    recipientsCount: matchedGuests.length,
+    recipientsList: recipientNames,
+    status: "success" as "success" | "failed",
+    type: (type || "manual") as "manual" | "auto",
+    channel: selectedChannel as "email" | "sms" | "both"
+  };
+
+  if (!data.notificationLogs) {
+    data.notificationLogs = [];
+  }
+  data.notificationLogs.unshift(newLog);
+
+  // Keep logs at a reasonable limit (max 50)
+  if (data.notificationLogs.length > 50) {
+    data.notificationLogs.pop();
+  }
+
+  saveWeddingData(data);
+  res.json({
+    success: true,
+    guests: data.guests,
+    notificationLogs: data.notificationLogs,
+    sentTo: recipientNames
+  });
+});
+
+app.post("/api/reminders/clear-logs", (req, res) => {
+  const data = getWeddingData();
+  data.notificationLogs = [];
+  saveWeddingData(data);
+  res.json({ success: true, notificationLogs: [] });
 });
 
 // Task CRUD

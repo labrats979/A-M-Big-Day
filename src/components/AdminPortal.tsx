@@ -8,7 +8,7 @@ import {
   Users, Layout, DollarSign, Briefcase, Download, RotateCcw, 
   UserPlus, Trash2, Check, X, ShieldAlert, CheckCircle, Clock,
   User, Plus, Heart, Sparkles, FolderClosed, Eye, EyeOff, Calendar, Settings,
-  Pencil
+  Pencil, Mail, Send, AlertCircle, RefreshCw, CheckSquare, Square, Bell, History
 } from 'lucide-react';
 
 interface AdminPortalProps {
@@ -18,6 +18,7 @@ interface AdminPortalProps {
   vendors: Vendor[];
   settings?: WeddingSettings;
   onUpdateSettings: (settings: Partial<WeddingSettings>) => void;
+  onRefreshData?: () => void;
   
   onAddGuest: (guest: Omit<Guest, 'id'>) => void;
   onDeleteGuest: (guestId: string) => void;
@@ -49,6 +50,7 @@ export default function AdminPortal({
   vendors,
   settings,
   onUpdateSettings,
+  onRefreshData,
   onAddGuest,
   onDeleteGuest,
   onUpdateGuestRSVP,
@@ -67,7 +69,7 @@ export default function AdminPortal({
   onResetDatabase,
   fullDataBackup
 }: AdminPortalProps) {
-  const [activeTab, setActiveTab] = useState<'guests' | 'seating' | 'budget' | 'vendors' | 'backup'>('guests');
+  const [activeTab, setActiveTab] = useState<'guests' | 'seating' | 'budget' | 'vendors' | 'backup' | 'reminders'>('guests');
 
   // Toggle between viewing Flat list vs Grouped by Family
   const [directoryView, setDirectoryView] = useState<'all' | 'family'>('family');
@@ -79,6 +81,8 @@ export default function AdminPortal({
   const [editGuestFamilyName, setEditGuestFamilyName] = useState('');
   const [editGuestRole, setEditGuestRole] = useState<UserRole>('guest');
   const [editGuestRSVP, setEditGuestRSVP] = useState<Guest['rsvpStatus']>('pending');
+  const [editGuestEmail, setEditGuestEmail] = useState('');
+  const [editGuestPhone, setEditGuestPhone] = useState('');
 
   const startEditingGuest = (guest: Guest) => {
     setEditingGuestId(guest.id);
@@ -87,6 +91,8 @@ export default function AdminPortal({
     setEditGuestFamilyName(guest.familyName || '');
     setEditGuestRole(guest.role);
     setEditGuestRSVP(guest.rsvpStatus);
+    setEditGuestEmail(guest.email || '');
+    setEditGuestPhone(guest.phone || '');
   };
 
   const cancelEditingGuest = () => {
@@ -105,7 +111,9 @@ export default function AdminPortal({
         age: editGuestAge ? parseInt(editGuestAge, 10) : undefined,
         familyName: editGuestFamilyName.trim() || undefined,
         role: editGuestRole,
-        rsvpStatus: editGuestRSVP
+        rsvpStatus: editGuestRSVP,
+        email: editGuestEmail.trim() || undefined,
+        phone: editGuestPhone.trim() || undefined
       });
     }
     setEditingGuestId(null);
@@ -120,6 +128,8 @@ export default function AdminPortal({
   const [newGuestFamilyName, setNewGuestFamilyName] = useState('');
   const [newGuestRole, setNewGuestRole] = useState<UserRole>('guest');
   const [newGuestRSVP, setNewGuestRSVP] = useState<Guest['rsvpStatus']>('pending');
+  const [newGuestEmail, setNewGuestEmail] = useState('');
+  const [newGuestPhone, setNewGuestPhone] = useState('');
 
   // Family Group Form State
   const [familySurname, setFamilySurname] = useState('');
@@ -144,6 +154,8 @@ export default function AdminPortal({
       rsvpStatus: newGuestRSVP,
       familyName: newGuestFamilyName.trim() || undefined,
       age: newGuestAge ? parseInt(newGuestAge, 10) : undefined,
+      email: newGuestEmail.trim() || undefined,
+      phone: newGuestPhone.trim() || undefined,
       tableId: null,
       seatIndex: null
     });
@@ -153,6 +165,8 @@ export default function AdminPortal({
     setNewGuestFamilyName('');
     setNewGuestRole('guest');
     setNewGuestRSVP('pending');
+    setNewGuestEmail('');
+    setNewGuestPhone('');
   };
 
   const handleAddFamilySubmit = async (e: React.FormEvent) => {
@@ -236,6 +250,214 @@ export default function AdminPortal({
   const [aboutImage2Url, setAboutImage2Url] = useState(settings?.aboutImage2Url ?? "");
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>(settings?.galleryItems ?? []);
 
+  // RSVP Reminders & Automated Notifications States
+  const [selectedPendingGuestIds, setSelectedPendingGuestIds] = useState<string[]>([]);
+  const [reminderChannel, setReminderChannel] = useState<'email' | 'sms' | 'both'>('email');
+  const [emailTemplateSubject, setEmailTemplateSubject] = useState(
+    settings?.aboutCoupleNames 
+      ? `Friendly Reminder: RSVP for ${settings.aboutCoupleNames}'s Wedding!` 
+      : "Friendly Reminder: RSVP for Alex & Morgan's Wedding!"
+  );
+  const [emailTemplateBody, setEmailTemplateBody] = useState(
+    `Dear {GuestName},
+
+We are finalizing our guest counts and wedding seating charts. We'd love to know if you will be celebrating with us! 
+
+Please take a moment to RSVP on our website at your earliest convenience.
+
+The countdown is on! We hope to see you there!
+
+Warmly,
+{CoupleNames}`
+  );
+  const [smsTemplateBody, setSmsTemplateBody] = useState(
+    `Hi {GuestName}! Just a quick, gentle reminder to RSVP for ${settings?.aboutCoupleNames || "Alex & Morgan"}'s wedding. Please take a second to submit your response. We can't wait to celebrate with you! - {CoupleNames}`
+  );
+  const [editingEmails, setEditingEmails] = useState<Record<string, string>>({});
+  const [editingPhones, setEditingPhones] = useState<Record<string, string>>({});
+  const [isSendingReminders, setIsSendingReminders] = useState(false);
+  const [sendingProgressCurrent, setSendingProgressCurrent] = useState(0);
+  const [sendingProgressTotal, setSendingProgressTotal] = useState(0);
+  const [currentlySendingTo, setCurrentlySendingTo] = useState("");
+  const [successLogs, setSuccessLogs] = useState<string[]>([]);
+  const [autoReminderEnabled, setAutoReminderEnabled] = useState(settings?.autoReminderEnabled ?? false);
+  const [autoReminderFrequency, setAutoReminderFrequency] = useState(settings?.autoReminderFrequency ?? 'off');
+  const [autoReminderChannel, setAutoReminderChannel] = useState<'email' | 'sms' | 'both'>(settings?.autoReminderChannel ?? 'email');
+
+  // Reminders Helper Functions & Presets
+  const pendingGuests = guests.filter(g => g.rsvpStatus === 'pending');
+
+  const templatePresets = [
+    {
+      name: "Warm Check-in",
+      subject: `We'd love to hear from you! 💌 RSVP for our wedding`,
+      body: `Dear {GuestName},
+
+We hope you are having a wonderful week! 
+
+We are currently putting together the seating arrangements and finishing the catering menus for our wedding. We would absolutely love to have you with us!
+
+Please take a quick moment to RSVP on our wedding website whenever you have a second.
+
+We can't wait to celebrate!
+
+With love,
+{CoupleNames}`
+    },
+    {
+      name: "Urgent: Deadline",
+      subject: `Action Required: Please RSVP for our wedding! ⏳`,
+      body: `Dear {GuestName},
+
+We are reaching out because our final guest counts and seating details are due soon! 
+
+We really hope you can join us for our special day. Please visit our website and submit your RSVP as soon as possible, ideally before {Deadline}.
+
+If you've already completed it or experienced any technical trouble, just let us know.
+
+Warmly,
+{CoupleNames}`
+    },
+    {
+      name: "Short & Sweet",
+      subject: `Quick RSVP Reminder - {CoupleNames} Wedding`,
+      body: `Hi {GuestName}!
+
+Just a quick, gentle reminder to submit your RSVP on our wedding website!
+
+Let us know if you can make it or if you have any questions.
+
+Best,
+{CoupleNames}`
+    }
+  ];
+
+  const getCompiledTemplate = (bodyText: string, guest: Guest | undefined) => {
+    if (!guest) return bodyText;
+    const couple = aboutCoupleNames || settings?.aboutCoupleNames || "Alex & Morgan";
+    const deadline = "July 20, 2026"; // Consistent with core wedding task deadline
+    return bodyText
+      .replace(/{GuestName}/g, guest.name)
+      .replace(/{CoupleNames}/g, couple)
+      .replace(/{Deadline}/g, deadline);
+  };
+
+  const handleUpdateGuestEmail = async (guest: Guest, email: string) => {
+    try {
+      const res = await fetch('/api/guests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...guest,
+          email: email.trim()
+        })
+      });
+      if (res.ok) {
+        if (onRefreshData) onRefreshData();
+      }
+    } catch (err) {
+      console.warn("Failed to update guest email:", err);
+    }
+  };
+
+  const handleUpdateGuestPhone = async (guest: Guest, phone: string) => {
+    try {
+      const res = await fetch('/api/guests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...guest,
+          phone: phone.trim()
+        })
+      });
+      if (res.ok) {
+        if (onRefreshData) onRefreshData();
+      }
+    } catch (err) {
+      console.warn("Failed to update guest phone:", err);
+    }
+  };
+
+  const handleSendReminders = async () => {
+    if (selectedPendingGuestIds.length === 0) {
+      alert("Please select at least one pending guest to send reminders to.");
+      return;
+    }
+
+    setIsSendingReminders(true);
+    setSendingProgressCurrent(0);
+    setSuccessLogs([]);
+
+    const total = selectedPendingGuestIds.length;
+    for (let i = 0; i < total; i++) {
+      const gId = selectedPendingGuestIds[i];
+      const guest = guests.find(g => g.id === gId);
+      if (guest) {
+        setCurrentlySendingTo(guest.name);
+        setSendingProgressCurrent(i + 1);
+        // Realistic simulated network transmission delay
+        await new Promise(resolve => setTimeout(resolve, 450));
+        
+        let targetDetail = "";
+        if (reminderChannel === "email") {
+          targetDetail = `✉️ Email: ${guest.email || 'no-email@example.com'}`;
+        } else if (reminderChannel === "sms") {
+          targetDetail = `💬 SMS: ${guest.phone || 'no-phone-number'}`;
+        } else {
+          const emailPart = guest.email ? `✉️ ${guest.email}` : 'no-email';
+          const phonePart = guest.phone ? `💬 ${guest.phone}` : 'no-phone';
+          targetDetail = `${emailPart} & ${phonePart}`;
+        }
+        setSuccessLogs(prev => [...prev, `${guest.name} (${targetDetail})`]);
+      }
+    }
+
+    try {
+      const res = await fetch("/api/reminders/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          guestIds: selectedPendingGuestIds,
+          subject: emailTemplateSubject,
+          messageBody: emailTemplateBody,
+          smsBody: smsTemplateBody,
+          channel: reminderChannel,
+          type: "manual"
+        })
+      });
+
+      if (res.ok) {
+        if (onRefreshData) {
+          onRefreshData();
+        }
+        alert(`Successfully sent ${total} RSVP reminders via ${reminderChannel === 'both' ? 'Email & SMS' : reminderChannel.toUpperCase()}! Saved in communications history.`);
+      } else {
+        alert("Reminders processed, but failed to sync updated state. Please refresh.");
+      }
+    } catch (err) {
+      console.warn("Error triggering reminder dispatch:", err);
+      alert("Reminders simulated locally, but server synchronization failed.");
+    } finally {
+      setIsSendingReminders(false);
+      setSelectedPendingGuestIds([]);
+      setCurrentlySendingTo("");
+    }
+  };
+
+  const handleClearLogs = async () => {
+    if (confirm("Are you sure you want to clear all RSVP reminder notification history logs? This cannot be undone.")) {
+      try {
+        const res = await fetch("/api/reminders/clear-logs", { method: "POST" });
+        if (res.ok) {
+          if (onRefreshData) onRefreshData();
+          alert("Reminder history logs cleared successfully.");
+        }
+      } catch (err) {
+        console.warn("Failed to clear logs:", err);
+      }
+    }
+  };
+
   // Form states for adding single Gallery Item
   const [newGalleryUrl, setNewGalleryUrl] = useState('');
   const [newGalleryType, setNewGalleryType] = useState<'photo' | 'video'>('photo');
@@ -253,6 +475,9 @@ export default function AdminPortal({
       setAboutImage1Url(settings.aboutImage1Url ?? "");
       setAboutImage2Url(settings.aboutImage2Url ?? "");
       setGalleryItems(settings.galleryItems ?? []);
+      setAutoReminderEnabled(settings.autoReminderEnabled ?? false);
+      setAutoReminderFrequency(settings.autoReminderFrequency ?? 'off');
+      setAutoReminderChannel(settings.autoReminderChannel ?? 'email');
     }
   }, [settings]);
 
@@ -268,9 +493,12 @@ export default function AdminPortal({
       aboutStory: aboutStory,
       aboutImage1Url: aboutImage1Url,
       aboutImage2Url: aboutImage2Url,
-      galleryItems: galleryItems
+      galleryItems: galleryItems,
+      autoReminderEnabled: autoReminderEnabled,
+      autoReminderFrequency: autoReminderFrequency,
+      autoReminderChannel: autoReminderChannel
     });
-    alert("Wedding configuration, Countdown, About Page & Gallery updated successfully!");
+    alert("Wedding configuration updated successfully!");
   };
 
   const handleAddGalleryItemLocal = (e: React.FormEvent) => {
@@ -521,6 +749,7 @@ export default function AdminPortal({
       <div className="flex border-b border-slate-200 overflow-x-auto gap-1">
         {[
           { key: 'guests', label: 'Guest Lists Manager', icon: Users },
+          { key: 'reminders', label: 'RSVP Reminders', icon: Mail },
           { key: 'seating', label: 'Venue Layout Seating', icon: Layout },
           { key: 'budget', label: 'Budget Expenses', icon: DollarSign },
           { key: 'vendors', label: 'Vendor Contacts', icon: Briefcase },
@@ -651,6 +880,7 @@ export default function AdminPortal({
                                 <th className="pb-1.5 text-center">Family Surname</th>
                                 <th className="pb-1.5 text-center">Wedding Role</th>
                                 <th className="pb-1.5 text-center">RSVP Status</th>
+                                <th className="pb-1.5 text-center">Contact Info</th>
                                 <th className="pb-1.5 text-center">Seating Assignment</th>
                                 <th className="pb-1.5 text-right">Actions</th>
                               </tr>
@@ -713,6 +943,24 @@ export default function AdminPortal({
                                             <option value="declined">declined</option>
                                           </select>
                                         </td>
+                                        <td className="py-2">
+                                          <div className="flex flex-col gap-1 w-28 mx-auto">
+                                            <input
+                                              type="email"
+                                              value={editGuestEmail}
+                                              onChange={(e) => setEditGuestEmail(e.target.value)}
+                                              placeholder="Email"
+                                              className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                                            />
+                                            <input
+                                              type="text"
+                                              value={editGuestPhone}
+                                              onChange={(e) => setEditGuestPhone(e.target.value)}
+                                              placeholder="Phone"
+                                              className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-400 font-mono"
+                                            />
+                                          </div>
+                                        </td>
                                         <td className="py-2 text-center">
                                           {isSeated && tableAssigned ? (
                                             <span className="text-[10px] font-medium text-slate-400">
@@ -767,6 +1015,19 @@ export default function AdminPortal({
                                             <option value="pending">pending</option>
                                             <option value="declined">declined</option>
                                           </select>
+                                        </td>
+                                        <td className="py-2.5 text-center">
+                                          <div className="flex flex-col text-[10px] items-center justify-center">
+                                            {member.email ? (
+                                              <span className="text-slate-600 truncate max-w-[120px]" title={member.email}>✉️ {member.email}</span>
+                                            ) : null}
+                                            {member.phone ? (
+                                              <span className="text-slate-500 font-mono text-[9px]">📞 {member.phone}</span>
+                                            ) : null}
+                                            {!member.email && !member.phone ? (
+                                              <span className="text-slate-300">—</span>
+                                            ) : null}
+                                          </div>
                                         </td>
                                         <td className="py-2.5 text-center">
                                           {isSeated && tableAssigned ? (
@@ -832,6 +1093,7 @@ export default function AdminPortal({
                               <th className="pb-1.5 text-center">Family Surname</th>
                               <th className="pb-1.5 text-center">Wedding Role</th>
                               <th className="pb-1.5 text-center">RSVP Status</th>
+                              <th className="pb-1.5 text-center">Contact Info</th>
                               <th className="pb-1.5 text-center">Seating Assignment</th>
                               <th className="pb-1.5 text-right">Actions</th>
                             </tr>
@@ -894,6 +1156,24 @@ export default function AdminPortal({
                                           <option value="declined">declined</option>
                                         </select>
                                       </td>
+                                      <td className="py-2">
+                                        <div className="flex flex-col gap-1 w-28 mx-auto">
+                                          <input
+                                            type="email"
+                                            value={editGuestEmail}
+                                            onChange={(e) => setEditGuestEmail(e.target.value)}
+                                            placeholder="Email"
+                                            className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                                          />
+                                          <input
+                                            type="text"
+                                            value={editGuestPhone}
+                                            onChange={(e) => setEditGuestPhone(e.target.value)}
+                                            placeholder="Phone"
+                                            className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-400 font-mono"
+                                          />
+                                        </div>
+                                      </td>
                                       <td className="py-2 text-center">
                                         {isSeated && tableAssigned ? (
                                           <span className="text-[10px] font-medium text-slate-400">
@@ -950,6 +1230,19 @@ export default function AdminPortal({
                                         </select>
                                       </td>
                                       <td className="py-2.5 text-center">
+                                        <div className="flex flex-col text-[10px] items-center justify-center">
+                                          {member.email ? (
+                                            <span className="text-slate-600 truncate max-w-[120px]" title={member.email}>✉️ {member.email}</span>
+                                          ) : null}
+                                          {member.phone ? (
+                                            <span className="text-slate-500 font-mono text-[9px]">📞 {member.phone}</span>
+                                          ) : null}
+                                          {!member.email && !member.phone ? (
+                                            <span className="text-slate-300">—</span>
+                                          ) : null}
+                                        </div>
+                                      </td>
+                                      <td className="py-2.5 text-center">
                                         {isSeated && tableAssigned ? (
                                           <span className="text-[10px] font-medium text-slate-700 bg-slate-100 border border-slate-200/50 px-1.5 py-0.5 rounded">
                                             {tableAssigned.name} (Seat {member.seatIndex !== null ? member.seatIndex + 1 : '?'})
@@ -1002,6 +1295,7 @@ export default function AdminPortal({
                         <th className="py-2 text-center">Family</th>
                         <th className="py-2 text-center">Party Role</th>
                         <th className="py-2 text-center">RSVP Status</th>
+                        <th className="py-2 text-center">Contact Info</th>
                         <th className="py-2 text-center">Seating Assignment</th>
                         <th className="py-2 text-right">Actions</th>
                       </tr>
@@ -1064,6 +1358,24 @@ export default function AdminPortal({
                                     <option value="declined">declined</option>
                                   </select>
                                 </td>
+                                <td className="py-2">
+                                  <div className="flex flex-col gap-1 w-32 mx-auto">
+                                    <input
+                                      type="email"
+                                      value={editGuestEmail}
+                                      onChange={(e) => setEditGuestEmail(e.target.value)}
+                                      placeholder="Email"
+                                      className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-400"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={editGuestPhone}
+                                      onChange={(e) => setEditGuestPhone(e.target.value)}
+                                      placeholder="Phone"
+                                      className="bg-slate-50 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-slate-800 focus:outline-none focus:ring-1 focus:ring-slate-400 font-mono"
+                                    />
+                                  </div>
+                                </td>
                                 <td className="py-2 text-center">
                                   {isSeated && tableAssigned ? (
                                     <span className="text-[10px] font-medium text-slate-400">
@@ -1118,6 +1430,19 @@ export default function AdminPortal({
                                     <option value="pending">pending</option>
                                     <option value="declined">declined</option>
                                   </select>
+                                </td>
+                                <td className="py-3 text-center">
+                                  <div className="flex flex-col text-[10px] items-center justify-center">
+                                    {guest.email ? (
+                                      <span className="text-slate-600 truncate max-w-[120px]" title={guest.email}>✉️ {guest.email}</span>
+                                    ) : null}
+                                    {guest.phone ? (
+                                      <span className="text-slate-500 font-mono text-[9px]">📞 {guest.phone}</span>
+                                    ) : null}
+                                    {!guest.email && !guest.phone ? (
+                                      <span className="text-slate-300">—</span>
+                                    ) : null}
+                                  </div>
                                 </td>
                                 <td className="py-3 text-center">
                                   {isSeated && tableAssigned ? (
@@ -1261,6 +1586,29 @@ export default function AdminPortal({
                     </select>
                   </div>
 
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1">Email Address</label>
+                      <input
+                        type="email"
+                        value={newGuestEmail}
+                        onChange={(e) => setNewGuestEmail(e.target.value)}
+                        placeholder="email@example.com"
+                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1">Phone Number</label>
+                      <input
+                        type="text"
+                        value={newGuestPhone}
+                        onChange={(e) => setNewGuestPhone(e.target.value)}
+                        placeholder="555-0100"
+                        className="w-full text-xs px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-400 text-slate-800 font-mono"
+                      />
+                    </div>
+                  </div>
+
                   <button
                     type="submit"
                     className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium text-xs py-2 rounded-lg transition-colors cursor-pointer"
@@ -1370,6 +1718,588 @@ export default function AdminPortal({
               )}
             </div>
           </div>
+          </div>
+        )}
+
+        {activeTab === 'reminders' && (
+          <div className="space-y-6 animate-fade-in text-slate-800">
+            {/* Notification overview statistics cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between">
+                <div>
+                  <span className="block text-slate-400 text-[10px] font-mono uppercase tracking-wider font-semibold">RSVP Completion</span>
+                  <span className="text-2xl font-bold text-slate-900 block mt-1">
+                    {guests.length > 0 
+                      ? Math.round(((guests.length - pendingGuests.length) / guests.length) * 100) 
+                      : 0}%
+                  </span>
+                </div>
+                <div className="mt-2 text-[10px] font-medium text-slate-500">
+                  {guests.length - pendingGuests.length} out of {guests.length} responded
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between">
+                <div>
+                  <span className="block text-amber-600 text-[10px] font-mono uppercase tracking-wider font-semibold">Pending Reminders</span>
+                  <span className="text-2xl font-bold text-slate-900 block mt-1">
+                    {pendingGuests.length} guests
+                  </span>
+                </div>
+                <div className="mt-2 text-[10px] font-medium text-amber-600 font-mono">
+                  {pendingGuests.filter(g => g.email).length} with email profiles
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between">
+                <div>
+                  <span className="block text-emerald-600 text-[10px] font-mono uppercase tracking-wider font-semibold">Total Campaigns Sent</span>
+                  <span className="text-2xl font-bold text-slate-900 block mt-1">
+                    {fullDataBackup.notificationLogs?.length || 0} runs
+                  </span>
+                </div>
+                <div className="mt-2 text-[10px] font-medium text-slate-500">
+                  {fullDataBackup.notificationLogs?.reduce((acc: number, log: any) => acc + log.recipientsCount, 0) || 0} total email notifications
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col justify-between">
+                <div>
+                  <span className="block text-slate-400 text-[10px] font-mono uppercase tracking-wider font-semibold">Last Reminder Outing</span>
+                  <span className="text-xs font-bold text-slate-800 block mt-2 truncate">
+                    {fullDataBackup.notificationLogs && fullDataBackup.notificationLogs.length > 0
+                      ? new Date(fullDataBackup.notificationLogs[0].timestamp).toLocaleDateString() + ' ' + new Date(fullDataBackup.notificationLogs[0].timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                      : "No campaigns sent yet"}
+                  </span>
+                </div>
+                <div className="mt-2 text-[10px] font-medium text-slate-500 truncate">
+                  {fullDataBackup.notificationLogs && fullDataBackup.notificationLogs.length > 0
+                    ? `To: ${fullDataBackup.notificationLogs[0].recipientsCount} pending guests`
+                    : "Simulated mailer ready"}
+                </div>
+              </div>
+            </div>
+
+            {/* Main Split Layout: Left: Guest Checklist, Right: Template Customizer & Preview */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Undecided Guest Selection list */}
+              <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h3 className="font-display font-bold text-slate-950 text-sm">
+                      Undecided RSVP Recipients ({pendingGuests.length} pending)
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      Select recipients and update missing email contact addresses.
+                    </p>
+                  </div>
+                  {pendingGuests.length > 0 && (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setSelectedPendingGuestIds(pendingGuests.map(g => g.id))}
+                        className="text-[9px] font-mono text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded cursor-pointer"
+                      >
+                        All
+                      </button>
+                      <button
+                        onClick={() => setSelectedPendingGuestIds([])}
+                        className="text-[9px] font-mono text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded cursor-pointer"
+                      >
+                        None
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {pendingGuests.length === 0 ? (
+                  <div className="py-12 text-center space-y-3">
+                    <span className="text-3xl">🎉</span>
+                    <h4 className="text-sm font-bold text-slate-900">Zero Pending Responses!</h4>
+                    <p className="text-xs text-slate-400 max-w-xs mx-auto leading-normal">
+                      Outstanding work! Every single wedding guest has registered their RSVP response. No notifications are necessary.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-y-auto max-h-[460px] pr-1 space-y-2">
+                    {pendingGuests.map(guest => {
+                      const isSelected = selectedPendingGuestIds.includes(guest.id);
+                      const currentEmailValue = editingEmails[guest.id] !== undefined ? editingEmails[guest.id] : (guest.email || "");
+                      const currentPhoneValue = editingPhones[guest.id] !== undefined ? editingPhones[guest.id] : (guest.phone || "");
+                      
+                      return (
+                        <div 
+                          key={guest.id}
+                          className={`flex items-start gap-3 p-3 border rounded-xl transition-all ${
+                            isSelected 
+                              ? 'bg-slate-50/50 border-slate-300' 
+                              : 'bg-white border-slate-200 hover:bg-slate-50/20'
+                          }`}
+                        >
+                          <button
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedPendingGuestIds(prev => prev.filter(id => id !== guest.id));
+                              } else {
+                                setSelectedPendingGuestIds(prev => [...prev, guest.id]);
+                              }
+                            }}
+                            className="mt-0.5 text-slate-400 hover:text-slate-900 cursor-pointer"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-slate-900" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-300" />
+                            )}
+                          </button>
+
+                          <div className="flex-1 space-y-1.5 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-display font-bold text-xs text-slate-900 truncate">
+                                {guest.name}
+                              </span>
+                              <span className="text-[9px] font-mono px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold uppercase truncate">
+                                {guest.familyName || "Individual"}
+                              </span>
+                            </div>
+
+                            {/* Contact info inline configuration forms */}
+                            <div className="space-y-1 bg-slate-50/50 p-1.5 rounded-lg border border-slate-100">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9px] text-slate-400 font-mono w-10">Email:</span>
+                                <input
+                                  type="email"
+                                  value={currentEmailValue}
+                                  onChange={(e) => {
+                                    const newVal = e.target.value;
+                                    setEditingEmails(prev => ({ ...prev, [guest.id]: newVal }));
+                                  }}
+                                  onBlur={() => handleUpdateGuestEmail(guest, currentEmailValue)}
+                                  placeholder="name@example.com"
+                                  className="flex-1 text-[10px] bg-transparent focus:bg-white border border-transparent hover:border-slate-200 focus:border-slate-300 rounded px-1 py-0.5 text-slate-700 placeholder-slate-400 font-mono outline-none"
+                                />
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-[9px] text-slate-400 font-mono w-10">Phone:</span>
+                                <input
+                                  type="text"
+                                  value={currentPhoneValue}
+                                  onChange={(e) => {
+                                    const newVal = e.target.value;
+                                    setEditingPhones(prev => ({ ...prev, [guest.id]: newVal }));
+                                  }}
+                                  onBlur={() => handleUpdateGuestPhone(guest, currentPhoneValue)}
+                                  placeholder="555-0100"
+                                  className="flex-1 text-[10px] bg-transparent focus:bg-white border border-transparent hover:border-slate-200 focus:border-slate-300 rounded px-1 py-0.5 text-slate-700 placeholder-slate-400 font-mono outline-none"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono pt-0.5 border-t border-slate-100/50">
+                              <span>Role: {guest.role}</span>
+                              <span>
+                                Reminded: {guest.lastReminderSent 
+                                  ? new Date(guest.lastReminderSent).toLocaleDateString() 
+                                  : "Never"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: Template Customizer, Presets, and live compiled preview */}
+              <div className="lg:col-span-6 space-y-6">
+                {/* Template presets and textarea editor */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+                  <div className="border-b border-slate-100 pb-3">
+                    <h3 className="font-display font-bold text-slate-950 text-sm">
+                      Configure RSVP Notification Template
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                      Select dispatch channel and craft highly personalized reminders for pending guests.
+                    </p>
+                  </div>
+
+                  {/* Dispatch Channel Switcher */}
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Communication Channel</label>
+                    <div className="grid grid-cols-3 gap-1 bg-slate-50 p-1 border border-slate-200 rounded-xl">
+                      {(['email', 'sms', 'both'] as const).map((ch) => (
+                        <button
+                          key={ch}
+                          type="button"
+                          onClick={() => setReminderChannel(ch)}
+                          className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all capitalize cursor-pointer ${
+                            reminderChannel === ch 
+                              ? 'bg-slate-900 text-white shadow-xs' 
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          {ch === 'both' ? 'Email & SMS' : ch}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Preset quick buttons - only shown if email or both */}
+                  {(reminderChannel === 'email' || reminderChannel === 'both') && (
+                    <div className="space-y-1.5 animate-fade-in">
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Email Template Presets</label>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {templatePresets.map((preset, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setEmailTemplateSubject(preset.subject);
+                              setEmailTemplateBody(preset.body);
+                            }}
+                            className="bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg py-1.5 px-2 text-[10px] font-bold text-center cursor-pointer transition-colors"
+                          >
+                            {preset.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Subject input - email or both */}
+                  {(reminderChannel === 'email' || reminderChannel === 'both') && (
+                    <div className="space-y-1 animate-fade-in">
+                      <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Email Subject Line</label>
+                      <input
+                        type="text"
+                        value={emailTemplateSubject}
+                        onChange={(e) => setEmailTemplateSubject(e.target.value)}
+                        placeholder="e.g. Friendly RSVP Reminder..."
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-slate-400"
+                      />
+                    </div>
+                  )}
+
+                  {/* Body textarea - email or both */}
+                  {(reminderChannel === 'email' || reminderChannel === 'both') && (
+                    <div className="space-y-1 animate-fade-in">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Email Body text</label>
+                        <span className="text-[9px] font-mono text-slate-400">Placeholders: {"{GuestName}"}, {"{CoupleNames}"}, {"{Deadline}"}</span>
+                      </div>
+                      <textarea
+                        rows={5}
+                        value={emailTemplateBody}
+                        onChange={(e) => setEmailTemplateBody(e.target.value)}
+                        placeholder="Type your email template body here..."
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-slate-400 font-sans leading-relaxed"
+                      />
+                    </div>
+                  )}
+
+                  {/* SMS Message textarea - sms or both */}
+                  {(reminderChannel === 'sms' || reminderChannel === 'both') && (
+                    <div className="space-y-1.5 animate-fade-in">
+                      <div className="flex justify-between items-center">
+                        <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">SMS Message Text</label>
+                        <span className="text-[9px] font-mono text-slate-400">Placeholders: {"{GuestName}"}, {"{CoupleNames}"}</span>
+                      </div>
+                      <textarea
+                        rows={3}
+                        maxLength={240}
+                        value={smsTemplateBody}
+                        onChange={(e) => setSmsTemplateBody(e.target.value)}
+                        placeholder="Type your SMS message body here..."
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-slate-400 font-sans leading-relaxed"
+                      />
+                      <div className="text-[9px] text-slate-400 font-mono text-right">
+                        {smsTemplateBody.length} / 240 characters
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Live compiled Email preview - email or both */}
+                  {(reminderChannel === 'email' || reminderChannel === 'both') && (
+                    <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/50 space-y-2 animate-fade-in">
+                      <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 border-b border-slate-150 pb-1">
+                        <span>EMAIL CLIENT LIVE PREVIEW</span>
+                        <span className="text-emerald-600 font-bold">● Compiled Real-Time</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono space-y-1">
+                        <div><strong className="text-slate-700">From:</strong> weddings@sim-messenger.wedding</div>
+                        <div>
+                          <strong className="text-slate-700">To:</strong>{' '}
+                          {selectedPendingGuestIds.length > 0 
+                            ? guests.find(g => g.id === selectedPendingGuestIds[0])?.name + ' <' + (guests.find(g => g.id === selectedPendingGuestIds[0])?.email || "guest@example.com") + '>'
+                            : pendingGuests[0] ? pendingGuests[0].name + ' <' + (pendingGuests[0].email || "guest@example.com") + '>' : "Guest Name"}
+                          {selectedPendingGuestIds.length > 1 && ` (+${selectedPendingGuestIds.length - 1} more)`}
+                        </div>
+                        <div><strong className="text-slate-700">Subject:</strong> {emailTemplateSubject}</div>
+                      </div>
+                      <div className="bg-white border border-slate-200 rounded-lg p-3 text-xs text-slate-700 whitespace-pre-wrap leading-relaxed shadow-2xs font-sans min-h-[100px]">
+                        {getCompiledTemplate(
+                          emailTemplateBody, 
+                          selectedPendingGuestIds.length > 0 
+                            ? guests.find(g => g.id === selectedPendingGuestIds[0]) 
+                            : pendingGuests[0]
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Live compiled SMS preview - sms or both */}
+                  {(reminderChannel === 'sms' || reminderChannel === 'both') && (
+                    <div className="border border-slate-150 rounded-2xl p-4 bg-slate-950 text-white space-y-2.5 shadow-sm animate-fade-in">
+                      <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 border-b border-slate-800 pb-1.5">
+                        <span className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          SMS WIRELESS SIMULATION
+                        </span>
+                        <span>
+                          To:{' '}
+                          {selectedPendingGuestIds.length > 0 
+                            ? (guests.find(g => g.id === selectedPendingGuestIds[0])?.phone || "555-0100")
+                            : (pendingGuests[0]?.phone || "555-0100")}
+                        </span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-300">
+                          W
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <span className="text-[10px] text-slate-400 font-medium">Wedding Mailer</span>
+                          <div className="bg-slate-800 text-slate-100 rounded-2xl rounded-tl-xs px-3.5 py-2 text-xs leading-relaxed max-w-[85%] inline-block">
+                            {getCompiledTemplate(
+                              smsTemplateBody,
+                              selectedPendingGuestIds.length > 0
+                                ? guests.find(g => g.id === selectedPendingGuestIds[0])
+                                : pendingGuests[0]
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Send Campaign Actions */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      disabled={isSendingReminders || selectedPendingGuestIds.length === 0}
+                      onClick={handleSendReminders}
+                      className={`w-full py-3.5 rounded-2xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer ${
+                        selectedPendingGuestIds.length === 0 
+                          ? 'bg-slate-100 text-slate-400 shadow-none cursor-not-allowed'
+                          : 'bg-slate-900 hover:bg-slate-800 text-white'
+                      }`}
+                    >
+                      <Send className="w-4 h-4" />
+                      Send RSVP Reminders ({reminderChannel === 'both' ? 'Email & SMS' : reminderChannel === 'sms' ? 'SMS' : 'Email'}) to {selectedPendingGuestIds.length} Selected Guests
+                    </button>
+                    {selectedPendingGuestIds.length === 0 && pendingGuests.length > 0 && (
+                      <p className="text-[9px] text-center text-slate-400 font-mono mt-1.5">
+                        * Please tick check-boxes on the left to select which guests should receive reminders.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Simulated mailing queue screen HUD overlay when sending */}
+            {isSendingReminders && (
+              <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-fade-in text-center">
+                  <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-800 animate-bounce">
+                    <Mail className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-display font-bold text-slate-900 text-sm">Wedding Mailer dispatching...</h3>
+                    <p className="text-xs text-slate-400">Processing real-time guest sync and simulated delivery logs</p>
+                  </div>
+                  
+                  {/* Progress bar */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[10px] font-mono text-slate-500">
+                      <span>Sending {sendingProgressCurrent} of {selectedPendingGuestIds.length}</span>
+                      <span>{Math.round((sendingProgressCurrent / selectedPendingGuestIds.length) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-slate-900 h-full transition-all duration-300"
+                        style={{ width: `${(sendingProgressCurrent / selectedPendingGuestIds.length) * 100}%` }}
+                      />
+                    </div>
+                    {currentlySendingTo && (
+                      <span className="text-[10px] text-slate-600 block italic font-medium">
+                        Dispatching SMTP envelope to: {currentlySendingTo}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Deliveries summary logs */}
+                  <div className="bg-slate-50 border border-slate-150 rounded-xl p-3 text-[10px] font-mono text-left max-h-[140px] overflow-y-auto space-y-1">
+                    {successLogs.map((logStr, lIdx) => (
+                      <div key={lIdx} className="text-emerald-700 flex items-center gap-1">
+                        <span>✓</span>
+                        <span>Delivered: {logStr}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Scheduler Rules Section and Communications Run history */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Automated scheduler configuration card */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+                <div className="border-b border-slate-100 pb-3">
+                  <h3 className="font-display font-bold text-slate-900 text-sm flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-slate-500" />
+                    Automated RSVP Scheduler Systems
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Set up automated background triggers to gently check in with pending guests without your manual intervention.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Activation Toggle */}
+                  <label className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={autoReminderEnabled}
+                      onChange={(e) => setAutoReminderEnabled(e.target.checked)}
+                      className="w-4 h-4 text-slate-900 border-slate-300 rounded focus:ring-slate-500 cursor-pointer"
+                    />
+                    <div>
+                      <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        {autoReminderEnabled ? "✓ Scheduler Engine Armed" : "Scheduler System Suspended"}
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-medium">Auto-remind guests still pending after the deadline</p>
+                    </div>
+                  </label>
+
+                  {/* Frequency selection dropdown */}
+                  {autoReminderEnabled && (
+                    <div className="space-y-4 animate-fade-in">
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Auto-Reminder Delivery Frequency</label>
+                        <select
+                          value={autoReminderFrequency}
+                          onChange={(e) => setAutoReminderFrequency(e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-slate-400 cursor-pointer"
+                        >
+                          <option value="weekly">Weekly Checklist Check-in (Recommended)</option>
+                          <option value="biweekly">Bi-weekly (Every 14 Days)</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Auto-Reminder Channel</label>
+                        <select
+                          value={autoReminderChannel}
+                          onChange={(e) => setAutoReminderChannel(e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 outline-none focus:border-slate-400 cursor-pointer"
+                        >
+                          <option value="email">Email Notification Only</option>
+                          <option value="sms">SMS Text Alert Only</option>
+                          <option value="both">Both (Email & SMS text alert)</option>
+                        </select>
+                      </div>
+
+                      <span className="text-[9px] text-amber-600 block mt-1 font-mono font-medium">
+                        * Background triggers execute automatically based on frequency rules.
+                      </span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      onUpdateSettings({
+                        autoReminderEnabled: autoReminderEnabled,
+                        autoReminderFrequency: autoReminderEnabled ? autoReminderFrequency : 'off',
+                        autoReminderChannel: autoReminderEnabled ? autoReminderChannel : 'email'
+                      });
+                      alert("Automated RSVP reminder scheduler preferences successfully synchronized!");
+                    }}
+                    className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow-xs"
+                  >
+                    <CheckCircle className="w-4 h-4 text-emerald-400" />
+                    Save Scheduler Settings
+                  </button>
+                </div>
+              </div>
+
+              {/* Sent history logs list card */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h3 className="font-display font-bold text-slate-900 text-sm flex items-center gap-2">
+                      <History className="w-4 h-4 text-slate-500" />
+                      Communications Outbox History
+                    </h3>
+                    {fullDataBackup.notificationLogs && fullDataBackup.notificationLogs.length > 0 && (
+                      <button
+                        onClick={handleClearLogs}
+                        className="text-[9px] font-mono text-red-600 hover:text-red-800 cursor-pointer hover:underline"
+                      >
+                        Clear History
+                      </button>
+                    )}
+                  </div>
+
+                  {(!fullDataBackup.notificationLogs || fullDataBackup.notificationLogs.length === 0) ? (
+                    <div className="py-8 text-center space-y-1.5 text-slate-400">
+                      <History className="w-8 h-8 mx-auto stroke-1 stroke-slate-300" />
+                      <p className="text-xs font-medium">No previous campaign dispatches found</p>
+                      <p className="text-[10px] text-slate-400 max-w-xs mx-auto leading-normal">
+                        Your mailing history outbox logs will be displayed here as you trigger reminders.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-y-auto max-h-[220px] space-y-3 pr-1">
+                      {fullDataBackup.notificationLogs.map((log: any) => (
+                        <div key={log.id} className="border border-slate-100 rounded-xl p-3 bg-slate-50/50 space-y-1.5">
+                          <div className="flex items-start justify-between gap-2 text-[10px]">
+                            <span className="font-bold text-slate-800 truncate">
+                              {log.subject}
+                            </span>
+                            <span className="text-[9px] bg-slate-200/80 text-slate-700 px-1.5 py-0.5 rounded-full font-mono font-bold whitespace-nowrap">
+                              {log.recipientsCount} sent
+                            </span>
+                          </div>
+
+                          <p className="text-[10px] text-slate-500 line-clamp-2">
+                            {log.messageBody}
+                          </p>
+
+                          <div className="flex justify-between items-center text-[9px] text-slate-400 font-mono pt-1.5 border-t border-slate-100/50">
+                            <span>
+                              {new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            </span>
+                            <span className="text-emerald-700 font-medium flex items-center gap-1">
+                              {log.channel === 'sms' 
+                                ? '💬 Delivered via SMS Gateway' 
+                                : log.channel === 'both' 
+                                  ? '📱 Delivered via Email & SMS' 
+                                  : '✉️ Delivered via SMTP Server'}
+                            </span>
+                          </div>
+
+                          {/* Recipients names array tooltip-style footer */}
+                          <div className="text-[8px] text-slate-400 truncate pt-0.5">
+                            Recipients: {log.recipientsList?.join(", ") || "N/A"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

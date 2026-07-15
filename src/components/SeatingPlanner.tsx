@@ -4,7 +4,7 @@ import {
   Plus, Trash2, X, HelpCircle, Layout, Move, Sparkles, 
   Wine, Circle, Square, Users, UserPlus, Milestone,
   Grid, Compass, Check, RotateCcw, AlertTriangle, Eye, ArrowRight,
-  Lock
+  Lock, Download, FileText
 } from 'lucide-react';
 
 interface SeatingPlannerProps {
@@ -447,6 +447,450 @@ export default function SeatingPlanner({
     return guests.filter(g => g.tableId === tableId).length;
   };
 
+  // Download simple text-based summary of the current floor plan and guest assignments
+  const downloadTextSummary = () => {
+    let summary = `==================================================\n`;
+    summary += `       WEDDING RECEPTION SEATING FLOOR PLAN       \n`;
+    summary += `==================================================\n\n`;
+    summary += `Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}\n`;
+    summary += `Total Layout Elements: ${tables.length}\n`;
+    summary += `Total Seating Capacity: ${tables.reduce((acc, t) => acc + (t.seatsCount || 0), 0)} seats\n`;
+    summary += `Total Seated Guests: ${guests.filter(g => g.tableId).length}\n`;
+    summary += `Total Unseated Guests (RSVP: Going): ${unseatedGuests.length}\n\n`;
+
+    summary += `--------------------------------------------------\n`;
+    summary += `                  TABLE & ELEMENT DETAILS         \n`;
+    summary += `--------------------------------------------------\n\n`;
+
+    if (tables.length === 0) {
+      summary += `No tables or elements currently placed on the floor plan.\n`;
+    } else {
+      tables.forEach((t, idx) => {
+        const typeLabel = t.type 
+          ? t.type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+          : 'Round Guest Table';
+        const occupied = guests.filter(g => g.tableId === t.id);
+
+        summary += `${idx + 1}. [${typeLabel}] "${t.name}"\n`;
+        if (t.seatsCount > 0) {
+          summary += `   Seating Assignment: ${occupied.length}/${t.seatsCount} seats filled\n`;
+          // List seats
+          for (let s = 0; s < t.seatsCount; s++) {
+            const guestAtSeat = occupied.find(g => g.seatIndex === s);
+            if (guestAtSeat) {
+              const roleStr = guestAtSeat.role.toUpperCase();
+              const familyStr = guestAtSeat.familyName ? ` (${guestAtSeat.familyName})` : '';
+              summary += `   - Seat ${s + 1}: ${guestAtSeat.name} [Role: ${roleStr}]${familyStr}\n`;
+            } else {
+              summary += `   - Seat ${s + 1}: [Empty Chair]\n`;
+            }
+          }
+        } else {
+          summary += `   Type: Non-seating structural item / decoration\n`;
+        }
+        summary += `\n`;
+      });
+    }
+
+    summary += `--------------------------------------------------\n`;
+    summary += `               UNSEATED GUESTS (RSVP: GOING)      \n`;
+    summary += `--------------------------------------------------\n`;
+    if (unseatedGuests.length === 0) {
+      summary += `All guests with RSVP "Going" have been assigned a seat!\n`;
+    } else {
+      unseatedGuests.forEach((g, idx) => {
+        const familyStr = g.familyName ? ` (${g.familyName})` : '';
+        summary += `${idx + 1}. ${g.name} [Role: ${g.role.toUpperCase()}]${familyStr}\n`;
+      });
+    }
+
+    // Create file download
+    const blob = new Blob([summary], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `wedding_reception_seating_summary.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    setNotification({
+      message: 'Downloaded seating summary report successfully!',
+      type: 'success'
+    });
+  };
+
+  // Render floor plan layout to high-res canvas and download as PNG
+  const downloadFloorPlanImage = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 1100;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      alert("Could not generate image in this browser environment.");
+      return;
+    }
+
+    // 1. Fill beautiful warm blueprint background
+    ctx.fillStyle = '#faf9f5';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 2. Draw dual margins / elegant framing border
+    ctx.strokeStyle = '#b45309'; // amber-700
+    ctx.lineWidth = 4;
+    ctx.strokeRect(15, 15, canvas.width - 30, canvas.height - 30);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(22, 22, canvas.width - 44, canvas.height - 44);
+
+    // 3. Draw dotted design layout grid
+    ctx.strokeStyle = 'rgba(180, 83, 9, 0.05)';
+    ctx.lineWidth = 1;
+    const gridSpacing = 40;
+    for (let x = 40; x < canvas.width - 40; x += gridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(x, 40);
+      ctx.lineTo(x, canvas.height - 40);
+      ctx.stroke();
+    }
+    for (let y = 40; y < canvas.height - 40; y += gridSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(40, y);
+      ctx.lineTo(canvas.width - 40, y);
+      ctx.stroke();
+    }
+
+    // 4. Header titles
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#78350f'; // amber-900
+    ctx.font = 'bold 32px serif';
+    ctx.fillText('RECEPTION SEATING FLOOR PLAN', canvas.width / 2, 75);
+
+    ctx.fillStyle = '#78716c'; // stone-500
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText('WEDDING BLUEPRINT & GUEST ASSIGNMENT BLUE MAP', canvas.width / 2, 105);
+
+    // Decorative separator
+    ctx.strokeStyle = '#e7e5e4';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(80, 125);
+    ctx.lineTo(canvas.width - 80, 125);
+    ctx.stroke();
+
+    // 5. Compute coordinates of items inside bounds
+    const marginX = 120;
+    const marginY = 180;
+    const spaceWidth = canvas.width - (2 * marginX);
+    const spaceHeight = canvas.height - marginY - 140;
+
+    tables.forEach(table => {
+      const localPos = localPositions[table.id] || { x: table.x, y: table.y };
+      const tableX = marginX + (localPos.x / 100) * spaceWidth;
+      const tableY = marginY + (localPos.y / 100) * spaceHeight;
+
+      const type = table.type || 'round_table';
+      const occupiedCount = guests.filter(g => g.tableId === table.id).length;
+
+      // Color mapping helper
+      const getRoleColors = (role?: string) => {
+        switch (role) {
+          case 'bridesmaid': return { bg: '#f43f5e', text: '#ffffff' }; // rose-500
+          case 'groomsman': return { bg: '#4f46e5', text: '#ffffff' }; // indigo-600
+          case 'admin': return { bg: '#f59e0b', text: '#0f172a' }; // amber-500
+          default: return { bg: '#10b981', text: '#ffffff' }; // emerald-500
+        }
+      };
+
+      if (type === 'stage') {
+        const w = (table.width || 224) * 1.25;
+        const h = (table.height || 104) * 1.25;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(tableX - w / 2, tableY - h / 2, w, h, 16);
+        } else {
+          ctx.rect(tableX - w / 2, tableY - h / 2, w, h);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(180, 83, 9, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tableX - w / 2 + 6, tableY - h / 2 + 6, w - 12, h - 12);
+
+        ctx.fillStyle = '#78350f';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText(`👑 ${table.name}`, tableX, tableY - 4);
+
+        ctx.fillStyle = 'rgba(120, 53, 15, 0.65)';
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText('HONORARY WEDDING STAGE', tableX, tableY + 16);
+
+      } else if (type === 'dance_floor') {
+        const w = (table.width || 90) * 1.65;
+        const h = (table.height || 90) * 1.65;
+
+        ctx.fillStyle = '#fcf7ec';
+        ctx.strokeStyle = '#b45309';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(tableX - w / 2, tableY - h / 2, w, h, 24);
+        } else {
+          ctx.rect(tableX - w / 2, tableY - h / 2, w, h);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(180, 83, 9, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(tableX - w / 2 + 8, tableY - h / 2 + 8, w - 16, h - 16, 16);
+        } else {
+          ctx.rect(tableX - w / 2 + 8, tableY - h / 2 + 8, w - 16, h - 16);
+        }
+        ctx.stroke();
+
+        ctx.fillStyle = '#78350f';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText('💃 DANCE FLOOR 🕺', tableX, tableY - 6);
+
+        ctx.fillStyle = 'rgba(120, 53, 15, 0.75)';
+        ctx.font = '11px sans-serif';
+        ctx.fillText(table.name, tableX, tableY + 12);
+
+      } else if (type === 'bar') {
+        const w = (table.width || 192) * 1.25;
+        const h = (table.height || 64) * 1.25;
+
+        ctx.fillStyle = '#fafaf9';
+        ctx.strokeStyle = '#78716c';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(tableX - w / 2, tableY - h / 2, w, h, 12);
+        } else {
+          ctx.rect(tableX - w / 2, tableY - h / 2, w, h);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#78350f';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillText(`🍸 ${table.name}`, tableX, tableY - 2);
+
+        ctx.fillStyle = '#78716c';
+        ctx.font = '9px monospace';
+        ctx.fillText('COCKTAILS & REFRESHMENTS', tableX, tableY + 14);
+
+      } else if (type === 'decoration') {
+        const w = (table.width || 64) * 1.25;
+
+        ctx.fillStyle = '#f0fdf4';
+        ctx.strokeStyle = '#16a34a';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(tableX, tableY, w / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#14532d';
+        ctx.font = '16px sans-serif';
+        ctx.fillText('🌿', tableX, tableY + 2);
+        ctx.font = 'bold 9px monospace';
+        ctx.fillText(table.name, tableX, tableY + 18);
+
+      } else if (type === 'rectangular_table') {
+        const w = (table.width || 176) * 1.15;
+        const h = (table.height || 88) * 1.15;
+
+        // Draw Chairs
+        const seats = table.seatsCount;
+        for (let i = 0; i < seats; i++) {
+          const seatOccupant = guests.find(g => g.tableId === table.id && g.seatIndex === i);
+          const colors = getRoleColors(seatOccupant?.role);
+
+          const isTop = i < seats / 2;
+          const colIdx = isTop ? i : i - seats / 2;
+          const cols = seats / 2;
+          const offsetPct = (colIdx + 0.5) / cols;
+          const chairX = tableX - w / 2 + offsetPct * w;
+          const chairY = isTop ? tableY - h / 2 - 14 : tableY + h / 2 + 14;
+
+          ctx.beginPath();
+          ctx.arc(chairX, chairY, 10, 0, Math.PI * 2);
+          if (seatOccupant) {
+            ctx.fillStyle = colors.bg;
+            ctx.fill();
+            ctx.fillStyle = colors.text;
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText(seatOccupant.name.charAt(0).toUpperCase(), chairX, chairY + 3.5);
+          } else {
+            ctx.fillStyle = '#fafaf9';
+            ctx.strokeStyle = '#a8a29e';
+            ctx.lineWidth = 1;
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+
+        // Draw Banquet Tablecloth
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#78716c';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(tableX - w / 2, tableY - h / 2, w, h, 12);
+        } else {
+          ctx.rect(tableX - w / 2, tableY - h / 2, w, h);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.strokeStyle = '#e7e5e4';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(tableX - w / 2 + 12, tableY);
+        ctx.lineTo(tableX + w / 2 - 12, tableY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 13px sans-serif';
+        const displayName = table.name.length > 20 ? table.name.substring(0, 17) + "..." : table.name;
+        ctx.fillText(displayName, tableX, tableY - 4);
+
+        ctx.fillStyle = '#78716c';
+        ctx.font = '9px monospace';
+        ctx.fillText(`${occupiedCount}/${table.seatsCount} SEATED`, tableX, tableY + 12);
+
+      } else { // round_table or default
+        const w = (table.width || 112) * 1.15;
+        const radius = w / 2;
+
+        const seats = table.seatsCount;
+        for (let i = 0; i < seats; i++) {
+          const angle = (i * 360) / seats;
+          const chairRadius = radius + 14;
+          const chairX = tableX + Math.cos((angle * Math.PI) / 180) * chairRadius;
+          const chairY = tableY + Math.sin((angle * Math.PI) / 180) * chairRadius;
+
+          const seatOccupant = guests.find(g => g.tableId === table.id && g.seatIndex === i);
+          const colors = getRoleColors(seatOccupant?.role);
+
+          ctx.beginPath();
+          ctx.arc(chairX, chairY, 10, 0, Math.PI * 2);
+          if (seatOccupant) {
+            ctx.fillStyle = colors.bg;
+            ctx.fill();
+            ctx.fillStyle = colors.text;
+            ctx.font = 'bold 10px sans-serif';
+            ctx.fillText(seatOccupant.name.charAt(0).toUpperCase(), chairX, chairY + 3.5);
+          } else {
+            ctx.fillStyle = '#fafaf9';
+            ctx.strokeStyle = '#a8a29e';
+            ctx.lineWidth = 1;
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#78716c';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(tableX, tableY, radius * 0.76, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.strokeStyle = '#e7e5e4';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(tableX, tableY, radius * 0.64, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 12px sans-serif';
+        const nameText = table.name.length > 14 ? table.name.substring(0, 11) + "..." : table.name;
+        ctx.fillText(nameText, tableX, tableY - 2);
+
+        ctx.fillStyle = '#78716c';
+        ctx.font = '9px monospace';
+        ctx.fillText(`${occupiedCount}/${table.seatsCount}`, tableX, tableY + 12);
+      }
+    });
+
+    // 6. Legend block
+    const legendY = canvas.height - 90;
+    ctx.strokeStyle = '#e7e5e4';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(50, legendY - 10, canvas.width - 100, 70);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#44403c';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText('BLUEPRINT LEGEND & CODES:', 70, legendY + 13);
+
+    const legendItems = [
+      { color: '#f43f5e', text: 'Lady Side (Bridesmaid)' },
+      { color: '#4f46e5', text: 'Groomsman Side' },
+      { color: '#10b981', text: 'General Guest' },
+      { color: '#f59e0b', text: 'Organizer / Admin' },
+      { color: '#fafaf9', stroke: '#a8a29e', text: 'Available Seat' }
+    ];
+
+    let startX = 70;
+    legendItems.forEach(item => {
+      ctx.beginPath();
+      ctx.arc(startX, legendY + 34, 6, 0, Math.PI * 2);
+      ctx.fillStyle = item.color;
+      ctx.fill();
+      if (item.stroke) {
+        ctx.strokeStyle = item.stroke;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#57534e';
+      ctx.font = '11px sans-serif';
+      ctx.fillText(item.text, startX + 12, legendY + 38);
+      startX += 175;
+    });
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#78350f';
+    ctx.font = 'bold 11px monospace';
+    const totalSeated = guests.filter(g => g.tableId).length;
+    const totalCapacity = tables.reduce((acc, t) => acc + (t.seatsCount || 0), 0);
+    ctx.fillText(`SEATED GUESTS: ${totalSeated}/${totalCapacity}`, canvas.width - 70, legendY + 15);
+    ctx.fillText(`TOTAL ELEMENTS: ${tables.length}`, canvas.width - 70, legendY + 35);
+
+    // 7. Download
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `wedding_reception_floor_plan.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setNotification({
+        message: 'Downloaded high-resolution floor plan blueprint!',
+        type: 'success'
+      });
+    } catch (err) {
+      alert("Encountered an error trying to save the canvas as a PNG image file.");
+    }
+  };
+
   // RENDER SEATED CHAIRS & OCCUPANTS
   const renderItemVisual = (table: Table, isSelected: boolean) => {
     const occupiedCount = countOccupiedSeats(table.id);
@@ -730,12 +1174,43 @@ export default function SeatingPlanner({
 
         {/* Action controllers */}
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={downloadFloorPlanImage}
+            disabled={tables.length === 0}
+            className={`px-3.5 py-1.5 font-medium text-xs rounded-lg transition-all duration-300 shadow flex items-center gap-1.5 cursor-pointer border ${
+              tables.length === 0 
+                ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' 
+                : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-slate-900'
+            }`}
+            title="Download high-resolution floor plan blueprint as PNG image"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            Download Blueprint (Image)
+          </button>
+          
+          <button
+            type="button"
+            onClick={downloadTextSummary}
+            disabled={tables.length === 0}
+            className={`px-3.5 py-1.5 font-medium text-xs rounded-lg transition-all duration-300 shadow flex items-center gap-1.5 cursor-pointer border ${
+              tables.length === 0 
+                ? 'bg-slate-50 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' 
+                : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700 hover:text-slate-900'
+            }`}
+            title="Download a rich text summary of tables, capacities and assigned guest names"
+          >
+            <FileText className="w-3.5 h-3.5 text-slate-500" />
+            Download Seating Report (Text)
+          </button>
+
           {readOnly ? (
             <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-slate-100 border border-slate-200 text-slate-500 font-mono text-xs font-bold rounded-lg uppercase tracking-wider select-none">
               <Lock className="w-3.5 h-3.5 text-slate-400" /> View Only Mode
             </span>
           ) : (
             <button
+              type="button"
               onClick={triggerAutoSeatFlow}
               className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-medium text-xs rounded-lg transition-all duration-300 shadow flex items-center gap-1.5 cursor-pointer"
             >

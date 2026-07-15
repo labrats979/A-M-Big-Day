@@ -9,6 +9,9 @@ export interface Guest {
   seatIndex: number | null; // 0-indexed position at the table
   familyName?: string;       // Name of the family, e.g. "Smith Family"
   age?: number;              // Age of the guest
+  email?: string;            // Guest email for notifications
+  phone?: string;            // Guest phone number for SMS notifications
+  lastReminderSent?: string; // Timestamp of the last reminder sent
 }
 
 export interface Table {
@@ -78,6 +81,9 @@ export interface WeddingSettings {
   aboutImage1Url?: string;
   aboutImage2Url?: string;
   galleryItems?: GalleryItem[];
+  autoReminderEnabled?: boolean;
+  autoReminderFrequency?: 'off' | 'weekly' | 'biweekly';
+  autoReminderChannel?: 'email' | 'sms' | 'both';
 }
 
 export interface GalleryItem {
@@ -85,6 +91,18 @@ export interface GalleryItem {
   url: string;
   type: 'photo' | 'video';
   caption?: string;
+}
+
+export interface NotificationLog {
+  id: string;
+  timestamp: string;
+  subject: string;
+  messageBody: string;
+  recipientsCount: number;
+  recipientsList: string[];
+  status: 'success' | 'failed';
+  type: 'manual' | 'auto';
+  channel?: 'email' | 'sms' | 'both';
 }
 
 export interface WeddingData {
@@ -96,4 +114,5 @@ export interface WeddingData {
   messages: Message[];
   tasks: Task[];
   settings?: WeddingSettings;
+  notificationLogs?: NotificationLog[];
 }

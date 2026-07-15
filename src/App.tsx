@@ -858,6 +858,7 @@ export default function App() {
                   tables={data.tables}
                   expenses={data.expenses}
                   vendors={data.vendors}
+                  settings={data.settings}
                   
                   onAddGuest={handleAddGuest}
                   onDeleteGuest={handleDeleteGuest}
@@ -878,6 +879,7 @@ export default function App() {
                   onDeleteVendor={handleDeleteVendor}
                   onResetDatabase={handleResetDatabase}
                   onUpdateSettings={handleUpdateSettings}
+                  onRefreshData={fetchWeddingData}
                   fullDataBackup={data}
                 />
               </div>
