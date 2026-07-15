@@ -2,9 +2,15 @@ import React, { useState, useEffect } from 'react';
 
 interface CountdownProps {
   targetDateString?: string;
+  title?: string;
+  description?: string;
 }
 
-export default function Countdown({ targetDateString = "2026-09-18T16:00:00" }: CountdownProps) {
+export default function Countdown({ 
+  targetDateString = "2026-09-18T16:00:00",
+  title = "The Big Day Awaits",
+  description = "Wedding Countdown"
+}: CountdownProps) {
   const [timeLeft, setTimeLeft] = useState({
     days: 0,
     hours: 0,
@@ -47,8 +53,8 @@ export default function Countdown({ targetDateString = "2026-09-18T16:00:00" }: 
 
   return (
     <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col items-center justify-center text-center">
-      <span className="text-xs font-mono uppercase tracking-widest text-slate-400 mb-1">Wedding Countdown</span>
-      <h2 className="font-display text-2xl font-bold text-slate-900 tracking-tight mb-4">The Big Day Awaits</h2>
+      <span className="text-xs font-mono uppercase tracking-widest text-slate-400 mb-1">{description}</span>
+      <h2 className="font-display text-2xl font-bold text-slate-900 tracking-tight mb-4">{title}</h2>
       
       {timeLeft.isOver ? (
         <div className="font-display text-3xl font-extrabold text-slate-800 animate-pulse py-2">

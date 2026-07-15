@@ -67,6 +67,26 @@ export interface Task {
   dueDate: string;
 }
 
+export interface WeddingSettings {
+  groomsmenCanSeeFloorPlan?: boolean;
+  bridesmaidCanSeeFloorPlan?: boolean; // lady side
+  countdownTargetDate?: string;
+  countdownTitle?: string;
+  countdownDescription?: string;
+  aboutStory?: string;
+  aboutCoupleNames?: string;
+  aboutImage1Url?: string;
+  aboutImage2Url?: string;
+  galleryItems?: GalleryItem[];
+}
+
+export interface GalleryItem {
+  id: string;
+  url: string;
+  type: 'photo' | 'video';
+  caption?: string;
+}
+
 export interface WeddingData {
   guests: Guest[];
   tables: Table[];
@@ -75,4 +95,5 @@ export interface WeddingData {
   schedule: ScheduleItem[];
   messages: Message[];
   tasks: Task[];
+  settings?: WeddingSettings;
 }

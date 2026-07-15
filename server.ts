@@ -68,31 +68,86 @@ const initialData: WeddingData = {
     { id: "t_k6", title: "Distribute groomsmen / bridesmaid duty schedules", stage: "ceremony", status: "in_progress", dueDate: "2026-07-10" },
     { id: "t_k7", title: "Send thank-you notes and settle vendor final balances", stage: "post-wedding", status: "todo", dueDate: "2026-09-01" },
   ],
+  settings: {
+    groomsmenCanSeeFloorPlan: false,
+    bridesmaidCanSeeFloorPlan: false,
+    countdownTargetDate: "2026-09-18T16:00:00",
+    countdownTitle: "The Big Day Awaits",
+    countdownDescription: "Wedding Countdown",
+    aboutCoupleNames: "Alex & Morgan",
+    aboutStory: "Welcome to our wedding coordination hub! We first met on a breezy autumn afternoon in the local botanical gardens, and since that day, we have shared countless adventures, laughters, and dreams. Now, we are embarking on our greatest adventure yet, and we can't wait to celebrate our love with our dearest friends and family on our big day!",
+    aboutImage1Url: "https://images.unsplash.com/photo-1511285560929-80b456fea0bc?q=80&w=600",
+    aboutImage2Url: "https://images.unsplash.com/photo-1519741497674-611481863552?q=80&w=600",
+    galleryItems: [
+      {
+        id: "gal_1",
+        url: "https://images.unsplash.com/photo-1519741497674-611481863552?q=80&w=800",
+        type: "photo",
+        caption: "Our beautiful garden wedding ceremony space"
+      },
+      {
+        id: "gal_2",
+        url: "https://images.unsplash.com/photo-1511285560929-80b456fea0bc?q=80&w=800",
+        type: "photo",
+        caption: "Looking forward to hand in hand forever"
+      },
+      {
+        id: "gal_3",
+        url: "https://images.unsplash.com/photo-1583939003579-730e3918a45a?q=80&w=800",
+        type: "photo",
+        caption: "Celebrating under the warm twinkle lights"
+      },
+      {
+        id: "gal_4",
+        url: "https://www.youtube.com/embed/g8S1K7M_VwQ",
+        type: "video",
+        caption: "Dreamy Cinematic Wedding Highlights Video"
+      }
+    ]
+  }
 };
 
 // -------------------------------------------------------------------------
 // Helper functions to read/write JSON DB
 // -------------------------------------------------------------------------
+let memoryData: WeddingData | null = null;
+
 function getWeddingData(): WeddingData {
   try {
     if (fs.existsSync(DB_FILE)) {
       const dataStr = fs.readFileSync(DB_FILE, "utf-8");
-      return JSON.parse(dataStr);
+      if (dataStr.trim()) {
+        const parsed = JSON.parse(dataStr);
+        if (parsed && Array.isArray(parsed.guests)) {
+          memoryData = parsed;
+          return parsed;
+        }
+      }
     }
   } catch (err) {
-    console.error("Error reading database file, returning initial seed:", err);
+    console.error("Error reading database file, resetting to initial seed:", err);
   }
   
-  // Write initial seed if not existing
+  if (memoryData) {
+    return memoryData;
+  }
+
+  // File is missing or corrupted, overwrite with initial seed
+  memoryData = { ...initialData };
   saveWeddingData(initialData);
   return initialData;
 }
 
 function saveWeddingData(data: WeddingData) {
+  memoryData = data;
   try {
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
   } catch (err) {
-    console.error("Error writing database file:", err);
+    console.error("Error writing database file, keeping in memory:", err);
   }
 }
 
@@ -100,13 +155,13 @@ function saveWeddingData(data: WeddingData) {
 // API Endpoints
 // -------------------------------------------------------------------------
 
-// Retrieve entire state
-app.get("/api/wedding-data", (req, res) => {
+// Retrieve entire state (supporting both data and date URLs to prevent 404s)
+app.get(["/api/wedding-data", "/api/wedding-date"], (req, res) => {
   res.json(getWeddingData());
 });
 
-// Update standard full state (backup)
-app.post("/api/wedding-data", (req, res) => {
+// Update standard full state (supporting both data and date URLs)
+app.post(["/api/wedding-data", "/api/wedding-date"], (req, res) => {
   const data = req.body as WeddingData;
   if (!data || !Array.isArray(data.guests)) {
     return res.status(400).json({ error: "Invalid data format" });
@@ -119,6 +174,15 @@ app.post("/api/wedding-data", (req, res) => {
 app.post("/api/reset", (req, res) => {
   saveWeddingData(initialData);
   res.json(initialData);
+});
+
+// Update settings
+app.post("/api/settings", (req, res) => {
+  const settings = req.body;
+  const data = getWeddingData();
+  data.settings = { ...data.settings, ...settings };
+  saveWeddingData(data);
+  res.json(data);
 });
 
 // Guest CRUD
@@ -152,6 +216,25 @@ app.post("/api/guests", (req, res) => {
     data.guests.push(newGuest);
   }
   
+  saveWeddingData(data);
+  res.json(data.guests);
+});
+
+app.post("/api/guests/bulk-rsvp", (req, res) => {
+  const updates = req.body as { id: string; rsvpStatus: Guest['rsvpStatus'] }[];
+  if (!Array.isArray(updates)) {
+    return res.status(400).json({ error: "Updates must be an array" });
+  }
+  const data = getWeddingData();
+  updates.forEach(update => {
+    const existingIdx = data.guests.findIndex(g => g.id === update.id);
+    if (existingIdx > -1) {
+      data.guests[existingIdx] = { 
+        ...data.guests[existingIdx], 
+        rsvpStatus: update.rsvpStatus 
+      };
+    }
+  });
   saveWeddingData(data);
   res.json(data.guests);
 });
@@ -197,6 +280,60 @@ app.delete("/api/tables/:id", (req, res) => {
   
   saveWeddingData(data);
   res.json({ tables: data.tables, guests: data.guests });
+});
+
+app.post("/api/tables/clear-all", (req, res) => {
+  const data = getWeddingData();
+  data.tables = [];
+  // Clear all guest table assignments
+  data.guests = data.guests.map(g => ({ ...g, tableId: null, seatIndex: null }));
+  
+  saveWeddingData(data);
+  res.json({ tables: data.tables, guests: data.guests });
+});
+
+// Bulk Guests assignment saving (no race conditions)
+app.post("/api/guests/bulk", (req, res) => {
+  const updates = req.body as { id: string; tableId: string | null; seatIndex: number | null }[];
+  if (!Array.isArray(updates)) {
+    return res.status(400).json({ error: "Updates must be an array" });
+  }
+  const data = getWeddingData();
+  updates.forEach(update => {
+    const existingIdx = data.guests.findIndex(g => g.id === update.id);
+    if (existingIdx > -1) {
+      data.guests[existingIdx] = { 
+        ...data.guests[existingIdx], 
+        tableId: update.tableId, 
+        seatIndex: update.seatIndex 
+      };
+    }
+  });
+  saveWeddingData(data);
+  res.json(data.guests);
+});
+
+// Bulk Tables saving (no race conditions)
+app.post("/api/tables/bulk", (req, res) => {
+  const tablesToSave = req.body as Table[];
+  if (!Array.isArray(tablesToSave)) {
+    return res.status(400).json({ error: "Tables must be an array" });
+  }
+  const data = getWeddingData();
+  tablesToSave.forEach(table => {
+    const existingIdx = data.tables.findIndex(t => t.id === table.id);
+    if (existingIdx > -1) {
+      data.tables[existingIdx] = { ...data.tables[existingIdx], ...table };
+    } else {
+      const newTable = {
+        ...table,
+        id: table.id || "t_" + Math.random().toString(36).substring(2, 9),
+      };
+      data.tables.push(newTable);
+    }
+  });
+  saveWeddingData(data);
+  res.json(data.tables);
 });
 
 // Expense CRUD

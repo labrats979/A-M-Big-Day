@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  WeddingData, Guest, Table, Expense, Vendor, ScheduleItem, Message, Task, UserRole 
+  WeddingData, Guest, Table, Expense, Vendor, ScheduleItem, Message, Task, UserRole, WeddingSettings 
 } from './types';
 import Countdown from './components/Countdown';
 import TaskBoard from './components/TaskBoard';
@@ -8,23 +8,27 @@ import Scheduler from './components/Scheduler';
 import ChatBoard from './components/ChatBoard';
 import CalendarView from './components/CalendarView';
 import AdminPortal from './components/AdminPortal';
+import SeatingPlanner from './components/SeatingPlanner';
+import VendorManager from './components/VendorManager';
+import RsvpSection from './components/RsvpSection';
+import AboutUs from './components/AboutUs';
+import GalleryView from './components/GalleryView';
 import { 
   Heart, Calendar, MessageSquare, ShieldCheck, LogOut, 
-  Settings, Lock, ArrowRight, ClipboardCheck, Sparkles, AlertCircle 
+  Settings, Lock, ArrowRight, ClipboardCheck, Sparkles, AlertCircle, Layout, Briefcase,
+  BookOpen, Image
 } from 'lucide-react';
 
 export default function App() {
   // -------------------------------------------------------------------------
   // Authentication & Session State
   // -------------------------------------------------------------------------
-  const [siteVerified, setSiteVerified] = useState(() => {
-    return localStorage.getItem('wedding_site_verified') === 'true';
-  });
+  const [siteVerified, setSiteVerified] = useState(true);
   const [siteInputPassword, setSiteInputPassword] = useState('');
   const [sitePassError, setSitePassError] = useState(false);
 
   const [userName, setUserName] = useState(() => {
-    return localStorage.getItem('wedding_user_name') || '';
+    return localStorage.getItem('wedding_user_name') || 'Guest';
   });
   const [userRole, setUserRole] = useState<UserRole>(() => {
     return (localStorage.getItem('wedding_user_role') as UserRole) || 'guest';
@@ -47,7 +51,7 @@ export default function App() {
     tasks: []
   });
   const [loading, setLoading] = useState(true);
-  const [activeMainTab, setActiveMainTab] = useState<'home' | 'schedule' | 'chat'>('home');
+  const [activeMainTab, setActiveMainTab] = useState<'home' | 'about' | 'gallery' | 'rsvp' | 'schedule' | 'chat' | 'seating' | 'vendors'>('home');
   const [showAdminMode, setShowAdminMode] = useState(false);
   const [adminUnlockPassword, setAdminUnlockPassword] = useState('');
   const [adminUnlockError, setAdminUnlockError] = useState(false);
@@ -158,10 +162,26 @@ export default function App() {
   const handleSignOut = () => {
     localStorage.removeItem('wedding_user_name');
     localStorage.removeItem('wedding_user_role');
-    setUserName('');
+    setUserName('Guest');
     setUserRole('guest');
     setNameInput('');
     setShowAdminMode(false);
+  };
+
+  const handleUpdateSettings = async (updatedSettings: Partial<WeddingSettings>) => {
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedSettings)
+      });
+      if (res.ok) {
+        const updatedData = await res.json();
+        setData(updatedData);
+      }
+    } catch (err) {
+      console.warn('Error saving settings:', err);
+    }
   };
 
   // -------------------------------------------------------------------------
@@ -249,6 +269,22 @@ export default function App() {
     }
   };
 
+  const handleClearAllTables = async () => {
+    try {
+      const res = await fetch('/api/tables/clear-all', { method: 'POST' });
+      if (res.ok) {
+        const payload = await res.json();
+        setData(prev => ({
+          ...prev,
+          tables: payload.tables,
+          guests: payload.guests
+        }));
+      }
+    } catch (err) {
+      console.warn('Error clearing all tables:', err);
+    }
+  };
+
   const handleAssignSeat = async (guestId: string, tableId: string | null, seatIndex: number | null) => {
     const guestObj = data.guests.find(g => g.id === guestId);
     if (!guestObj) return;
@@ -265,6 +301,38 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Error assigning seat:', err);
+    }
+  };
+
+  const handleBulkAssignSeats = async (updates: { id: string; tableId: string | null; seatIndex: number | null }[]) => {
+    try {
+      const res = await fetch('/api/guests/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      if (res.ok) {
+        const updatedGuests = await res.json();
+        setData(prev => ({ ...prev, guests: updatedGuests }));
+      }
+    } catch (err) {
+      console.warn('Error bulk assigning seats:', err);
+    }
+  };
+
+  const handleAddTablesBulk = async (tablesToSave: Table[]) => {
+    try {
+      const res = await fetch('/api/tables/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tablesToSave)
+      });
+      if (res.ok) {
+        const updatedTables = await res.json();
+        setData(prev => ({ ...prev, tables: updatedTables }));
+      }
+    } catch (err) {
+      console.warn('Error bulk adding tables:', err);
     }
   };
 
@@ -509,80 +577,6 @@ export default function App() {
     );
   }
 
-  // Phase 2: Enter Name & Role SignUp (Local storage persistence)
-  if (!userName) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 space-y-6 shadow-xl">
-          <div className="text-center space-y-1.5">
-            <span className="text-[10px] font-mono tracking-widest text-amber-400 uppercase">Verification Passed</span>
-            <h1 className="font-display text-xl md:text-2xl font-bold text-white tracking-tight">Who is joining us?</h1>
-            <p className="text-xs text-slate-400 font-medium">Introduce yourself to configure your tailored wedding dashboard.</p>
-          </div>
-
-          <form onSubmit={handleUserSignIn} className="space-y-4">
-            <div>
-              <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1">Your Full Name</label>
-              <input
-                type="text"
-                required
-                value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
-                placeholder="e.g. David Miller"
-                className="w-full bg-slate-850 text-white rounded-2xl px-4 py-3 text-xs border border-slate-800 focus:outline-none focus:border-slate-600 focus:ring-1 focus:ring-slate-600"
-              />
-              <p className="text-[10px] text-slate-500 mt-1 font-medium">
-                Enter your exact name to sync an existing RSVP, otherwise we will register you!
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400 mb-1">Your Wedding Party Role</label>
-              <select
-                value={roleInput}
-                onChange={(e) => setRoleInput(e.target.value as UserRole)}
-                className="w-full bg-slate-850 text-white rounded-2xl px-4 py-3 text-xs border border-slate-800 focus:outline-none focus:border-slate-600 focus:ring-1 focus:ring-slate-600"
-              >
-                <option value="guest">Wedding Guest / Family</option>
-                <option value="groomsman">Groomsman (Groom's Side)</option>
-                <option value="bridesmaid">Bridesmaid (Lady Side)</option>
-                <option value="admin">Wedding Organizer / Admin Mode</option>
-              </select>
-            </div>
-
-            {roleInput === 'admin' && (
-              <div className="space-y-1 animate-fade-in">
-                <label className="block text-[10px] font-mono uppercase tracking-wider text-amber-400 mb-1">Admin Security Passcode</label>
-                <input
-                  type="password"
-                  required
-                  value={adminPassInput}
-                  onChange={(e) => setAdminPassInput(e.target.value)}
-                  placeholder="Enter administrator passcode..."
-                  className="w-full bg-slate-850 text-white rounded-2xl px-4 py-3 text-xs border border-slate-800 focus:outline-none focus:border-slate-600"
-                />
-                {adminPassError && (
-                  <span className="text-[10px] text-red-400 font-medium block">Incorrect passcode. Hint: Same as site code</span>
-                )}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              className="w-full bg-white hover:bg-slate-200 text-slate-950 font-bold text-xs py-3 rounded-2xl transition-all flex items-center justify-center gap-1 cursor-pointer"
-            >
-              Sign In to Portal <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-
-          <p className="text-[10px] text-center text-slate-500 font-mono">
-            Saves your credentials directly on this device for offline re-entry.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   // -------------------------------------------------------------------------
   // Main Interface Dashboard Render
   // -------------------------------------------------------------------------
@@ -606,10 +600,15 @@ export default function App() {
           <div className="flex items-center gap-3 self-end sm:self-auto">
             <div className="flex gap-1.5 border border-slate-200 rounded-xl p-1 bg-slate-50">
               {[
-                { id: 'home', label: 'Wedding Home', icon: Heart },
-                { id: 'schedule', label: 'Duties & Times', icon: Calendar },
-                { id: 'chat', label: 'Coordination', icon: MessageSquare }
-              ].map(tab => {
+                { id: 'home', label: 'Wedding Home', icon: Heart, visible: true },
+                { id: 'about', label: 'Our Story', icon: BookOpen, visible: true },
+                { id: 'gallery', label: 'Gallery', icon: Image, visible: true },
+                { id: 'rsvp', label: 'RSVP Response', icon: ClipboardCheck, visible: true },
+                { id: 'schedule', label: 'Duties & Times', icon: Calendar, visible: true },
+                { id: 'chat', label: 'Coordination', icon: MessageSquare, visible: true },
+                { id: 'seating', label: 'Floor Plan', icon: Layout, visible: ['admin', 'groomsman', 'bridesmaid'].includes(userRole) },
+                { id: 'vendors', label: 'Vendors', icon: Briefcase, visible: ['admin', 'groomsman', 'bridesmaid'].includes(userRole) }
+              ].filter(t => t.visible).map(tab => {
                 const Icon = tab.icon;
                 const isSelected = activeMainTab === tab.id;
                 return (
@@ -665,7 +664,11 @@ export default function App() {
                 {/* Countdown & Introduction cards */}
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
                   <div className="md:col-span-4 flex flex-col justify-between h-full">
-                    <Countdown />
+                    <Countdown 
+                      targetDateString={data.settings?.countdownTargetDate}
+                      title={data.settings?.countdownTitle}
+                      description={data.settings?.countdownDescription}
+                    />
                   </div>
                   <div className="md:col-span-8 bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-4">
                     <div className="space-y-2">
@@ -716,6 +719,40 @@ export default function App() {
               </div>
             )}
 
+            {activeMainTab === 'about' && (
+              <div className="animate-fade-in">
+                <AboutUs settings={data.settings} />
+              </div>
+            )}
+
+            {activeMainTab === 'gallery' && (
+              <div className="animate-fade-in">
+                <GalleryView settings={data.settings} />
+              </div>
+            )}
+
+            {activeMainTab === 'rsvp' && (
+              <div className="animate-fade-in">
+                <RsvpSection
+                  guests={data.guests}
+                  tables={data.tables}
+                  userName={userName}
+                  userRole={userRole}
+                  onSignIn={(name, role) => {
+                    setUserName(name);
+                    setUserRole(role);
+                    localStorage.setItem('wedding_user_name', name);
+                    localStorage.setItem('wedding_user_role', role);
+                    if (role === 'admin') {
+                      setShowAdminMode(true);
+                    }
+                  }}
+                  onSignOut={handleSignOut}
+                  onRefreshData={fetchWeddingData}
+                />
+              </div>
+            )}
+
             {activeMainTab === 'schedule' && (
               <div className="animate-fade-in">
                 <Scheduler
@@ -734,6 +771,58 @@ export default function App() {
                   userName={userName}
                   userRole={userRole}
                   onSendMessage={handleSendMessage}
+                />
+              </div>
+            )}
+
+            {activeMainTab === 'seating' && (() => {
+              const groomsmenCanSee = data.settings?.groomsmenCanSeeFloorPlan ?? false;
+              const bridesmaidCanSee = data.settings?.bridesmaidCanSeeFloorPlan ?? false;
+              
+              const isAllowed = userRole === 'admin' || 
+                (userRole === 'groomsman' && groomsmenCanSee) || 
+                (userRole === 'bridesmaid' && bridesmaidCanSee);
+                
+              if (!isAllowed) {
+                return (
+                  <div className="bg-white border border-slate-200/80 rounded-3xl p-12 text-center max-w-2xl mx-auto space-y-6 shadow-sm animate-fade-in my-8">
+                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto border border-slate-200">
+                      <Lock className="w-6 h-6 text-slate-400" />
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="font-serif text-2xl font-bold text-slate-950 tracking-tight">The Floor Plan is not yet down</h3>
+                      <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed font-medium">
+                        The wedding administrator is still perfecting the table arrangements and layout design. Please check back later once assignments are finalized!
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+              
+              return (
+                <div className="animate-fade-in">
+                  <SeatingPlanner
+                    tables={data.tables}
+                    guests={data.guests}
+                    onAddTable={handleAddTable}
+                    onDeleteTable={handleDeleteTable}
+                    onClearAllTables={handleClearAllTables}
+                    onAssignSeat={handleAssignSeat}
+                    onBulkAssignSeats={handleBulkAssignSeats}
+                    onAddTablesBulk={handleAddTablesBulk}
+                    readOnly={userRole !== 'admin'}
+                  />
+                </div>
+              );
+            })()}
+
+            {activeMainTab === 'vendors' && (
+              <div className="animate-fade-in">
+                <VendorManager
+                  vendors={data.vendors}
+                  onAddVendor={handleAddVendor}
+                  onDeleteVendor={handleDeleteVendor}
+                  readOnly={userRole !== 'admin'}
                 />
               </div>
             )}
@@ -776,7 +865,10 @@ export default function App() {
                   
                   onAddTable={handleAddTable}
                   onDeleteTable={handleDeleteTable}
+                  onClearAllTables={handleClearAllTables}
                   onAssignSeat={handleAssignSeat}
+                  onBulkAssignSeats={handleBulkAssignSeats}
+                  onAddTablesBulk={handleAddTablesBulk}
                   
                   onAddExpense={handleAddExpense}
                   onDeleteExpense={handleDeleteExpense}
@@ -785,6 +877,7 @@ export default function App() {
                   onAddVendor={handleAddVendor}
                   onDeleteVendor={handleDeleteVendor}
                   onResetDatabase={handleResetDatabase}
+                  onUpdateSettings={handleUpdateSettings}
                   fullDataBackup={data}
                 />
               </div>
