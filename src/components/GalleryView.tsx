@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { WeddingSettings, GalleryItem, UserRole } from '../types';
 import { 
   Image as ImageIcon, Video, Play, X, ChevronLeft, ChevronRight, 
-  Plus, Trash2, Check, Sparkles, Film, HelpCircle 
+  Plus, Trash2, Check, Sparkles, Film, HelpCircle, Upload 
 } from 'lucide-react';
 
 interface GalleryViewProps {
@@ -26,6 +26,97 @@ export default function GalleryView({ settings, userRole, onUpdateSettings }: Ga
   const [newUrl, setNewUrl] = useState('');
   const [newType, setNewType] = useState<'photo' | 'video'>('photo');
   const [newCaption, setNewCaption] = useState('');
+  
+  // File upload states
+  const [uploadMethod, setUploadMethod] = useState<'upload' | 'url'>('upload');
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const handleFileUpload = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Only image files are supported in the gallery.');
+      return;
+    }
+    
+    // Check size limit (e.g., 20MB)
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('File is too large. Please select an image smaller than 20MB.');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        try {
+          const base64String = reader.result as string;
+          // Strip the data:image/...;base64, prefix
+          const base64Data = base64String.split(',')[1];
+
+          const res = await fetch('/api/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: file.name,
+              fileType: file.type,
+              base64Data
+            })
+          });
+
+          if (res.ok) {
+            const payload = await res.json();
+            setNewUrl(payload.url);
+            if (!newCaption) {
+              // Auto-populate caption based on filename
+              const cleanName = file.name.split('.')[0].replace(/[_\-]/g, ' ');
+              setNewCaption(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
+            }
+          } else {
+            const errData = await res.json();
+            setUploadError(errData.error || 'Failed to upload image. Please try again.');
+          }
+        } catch (err) {
+          console.error('Error in upload response handling:', err);
+          setUploadError('Failed to process upload response.');
+        } finally {
+          setIsUploading(false);
+        }
+      };
+      
+      reader.onerror = () => {
+        setUploadError('Error reading file.');
+        setIsUploading(false);
+      };
+
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('File upload error:', err);
+      setUploadError('An error occurred during upload.');
+      setIsUploading(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (isAdmin) {
+      setIsDraggingFile(true);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setIsDraggingFile(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingFile(false);
+    if (isAdmin && e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileUpload(e.dataTransfer.files[0]);
+    }
+  };
 
   const filteredItems = items.filter(item => {
     if (filter === 'all') return true;
@@ -153,25 +244,29 @@ export default function GalleryView({ settings, userRole, onUpdateSettings }: Ga
       {isAdmin && showAddForm && (
         <form 
           onSubmit={handleAddMedia}
-          className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4 animate-fade-in"
+          className="bg-white border border-slate-200 rounded-2xl p-6 shadow-md space-y-6 animate-fade-in"
         >
-          <div className="border-b border-slate-100 pb-2.5">
+          <div className="border-b border-slate-150 pb-3">
             <h3 className="font-display font-bold text-slate-900 text-sm flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500" />
               Add Media Asset to Gallery
             </h3>
-            <p className="text-[10px] text-slate-400 font-mono">
-              Provide an image URL or video embed URL to extend your story catalog.
+            <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+              Upload local photos directly or supply a video embed URL to extend your celebration story catalog.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-            <div className="md:col-span-3 space-y-1">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+            {/* Media Type Selection */}
+            <div className="md:col-span-3 space-y-1.5">
               <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Media Type</label>
               <div className="grid grid-cols-2 gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200">
                 <button
                   type="button"
-                  onClick={() => setNewType('photo')}
+                  onClick={() => {
+                    setNewType('photo');
+                    setNewUrl('');
+                  }}
                   className={`py-1 rounded-lg text-xs font-bold capitalize transition-all cursor-pointer ${
                     newType === 'photo' ? 'bg-white text-slate-900 shadow-3xs border border-slate-150' : 'text-slate-500'
                   }`}
@@ -180,7 +275,10 @@ export default function GalleryView({ settings, userRole, onUpdateSettings }: Ga
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNewType('video')}
+                  onClick={() => {
+                    setNewType('video');
+                    setNewUrl('');
+                  }}
                   className={`py-1 rounded-lg text-xs font-bold capitalize transition-all cursor-pointer ${
                     newType === 'video' ? 'bg-white text-slate-900 shadow-3xs border border-slate-150' : 'text-slate-500'
                   }`}
@@ -190,43 +288,157 @@ export default function GalleryView({ settings, userRole, onUpdateSettings }: Ga
               </div>
             </div>
 
-            <div className="md:col-span-5 space-y-1">
-              <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                {newType === 'photo' ? 'Direct Image URL' : 'Video Embed URL'}
-              </label>
-              <input
-                type="text"
-                required
-                value={newUrl}
-                onChange={(e) => setNewUrl(e.target.value)}
-                placeholder={newType === 'photo' ? "https://images.unsplash.com/photo-..." : "https://www.youtube.com/embed/..."}
-                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-slate-400 font-mono"
-              />
+            {/* Media URL / Upload Input Area */}
+            <div className="md:col-span-5 space-y-1.5">
+              {newType === 'photo' ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Image Source</label>
+                    <div className="flex gap-2 text-[10px] font-medium">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadMethod('upload');
+                          setNewUrl('');
+                        }}
+                        className={`hover:text-slate-800 transition-colors cursor-pointer ${uploadMethod === 'upload' ? 'text-slate-950 font-semibold underline underline-offset-2' : 'text-slate-400'}`}
+                      >
+                        Upload Local File
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadMethod('url');
+                          setNewUrl('');
+                        }}
+                        className={`hover:text-slate-800 transition-colors cursor-pointer ${uploadMethod === 'url' ? 'text-slate-950 font-semibold underline underline-offset-2' : 'text-slate-400'}`}
+                      >
+                        Enter Image URL
+                      </button>
+                    </div>
+                  </div>
+
+                  {uploadMethod === 'upload' ? (
+                    <div className="space-y-2">
+                      {/* Drag & Drop Upload Zone */}
+                      <label
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        className={`relative flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-4 transition-all duration-200 cursor-pointer text-center bg-slate-50/50 hover:bg-slate-50 ${
+                          isDraggingFile ? 'border-slate-800 bg-slate-100/50 scale-[1.01]' : 'border-slate-200'
+                        }`}
+                      >
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              handleFileUpload(e.target.files[0]);
+                            }
+                          }}
+                        />
+
+                        {isUploading ? (
+                          <div className="space-y-2">
+                            <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin mx-auto" />
+                            <p className="text-[11px] font-medium text-slate-600">Uploading photo to vault...</p>
+                          </div>
+                        ) : newUrl ? (
+                          <div className="flex items-center gap-3">
+                            {newUrl.startsWith('/uploads/') && (
+                              <img
+                                src={newUrl}
+                                alt="Upload Preview"
+                                referrerPolicy="no-referrer"
+                                className="w-12 h-12 rounded-lg object-cover border border-slate-200"
+                              />
+                            )}
+                            <div className="text-left">
+                              <p className="text-[11px] font-semibold text-emerald-700 flex items-center gap-1">
+                                <Check className="w-3.5 h-3.5" /> Uploaded Successfully!
+                              </p>
+                              <p className="text-[10px] text-slate-400 font-mono truncate max-w-[200px]">{newUrl}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1 text-slate-400">
+                            <Upload className="w-6 h-6 text-slate-400 mx-auto" />
+                            <p className="text-[11px] font-semibold text-slate-600">Drag & drop photo here, or click to browse</p>
+                            <p className="text-[9px] text-slate-400 font-mono uppercase tracking-widest">JPG, PNG, WEBP up to 20MB</p>
+                          </div>
+                        )}
+                      </label>
+
+                      {uploadError && (
+                        <p className="text-[10px] text-red-500 font-medium flex items-center gap-1 bg-red-50 border border-red-150 p-2 rounded-lg">
+                          ⚠️ {uploadError}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      value={newUrl}
+                      onChange={(e) => setNewUrl(e.target.value)}
+                      placeholder="https://images.unsplash.com/photo-..."
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-slate-400 font-mono"
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                    Video Embed URL
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newUrl}
+                    onChange={(e) => setNewUrl(e.target.value)}
+                    placeholder="https://www.youtube.com/embed/..."
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-slate-400 font-mono"
+                  />
+                </div>
+              )}
             </div>
 
-            <div className="md:col-span-4 space-y-1">
+            {/* Caption Area */}
+            <div className="md:col-span-4 space-y-1.5">
               <label className="block text-[10px] font-mono uppercase tracking-wider text-slate-400">Caption / Description</label>
               <input
                 type="text"
                 value={newCaption}
                 onChange={(e) => setNewCaption(e.target.value)}
                 placeholder="e.g. Walking down the aisle together..."
-                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 outline-none focus:border-slate-400 font-sans"
+                className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-800 outline-none focus:border-slate-400 font-sans"
               />
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+          <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => setShowAddForm(false)}
-              className="px-4 py-1.5 text-xs font-bold border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-500 cursor-pointer"
+              onClick={() => {
+                setShowAddForm(false);
+                setNewUrl('');
+                setNewCaption('');
+              }}
+              className="px-4 py-2 text-xs font-bold border border-slate-200 hover:bg-slate-50 rounded-lg text-slate-500 cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 text-xs font-bold bg-slate-900 hover:bg-slate-850 rounded-lg text-white cursor-pointer"
+              disabled={isUploading || !newUrl}
+              className={`px-4 py-2 text-xs font-bold rounded-lg text-white transition-all cursor-pointer ${
+                isUploading || !newUrl
+                  ? 'bg-slate-300 cursor-not-allowed text-slate-500' 
+                  : 'bg-slate-900 hover:bg-slate-850 shadow-sm'
+              }`}
             >
               Publish Media
             </button>

@@ -1343,6 +1343,21 @@ export default function SeatingPlanner({
                       </div>
                     )}
                     {renderItemVisual(table, isSelected)}
+                    {/* Interactive Floor Map Floating Occupancy Badge */}
+                    {(table.type === 'round_table' || table.type === 'rectangular_table' || !table.type) && (
+                      <div 
+                        title={`${countOccupiedSeats(table.id)} of ${table.seatsCount} seats assigned`}
+                        className={`absolute -top-1 -right-1 z-[40] flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[9px] font-mono font-bold tracking-tight border shadow-md transition-all duration-300 pointer-events-auto cursor-pointer select-none ${
+                          countOccupiedSeats(table.id) === table.seatsCount
+                            ? 'bg-emerald-500 text-white border-emerald-400'
+                            : countOccupiedSeats(table.id) === 0
+                            ? 'bg-stone-100 text-stone-400 border-stone-200'
+                            : 'bg-amber-500 text-slate-950 border-amber-400'
+                        }`}
+                      >
+                        {countOccupiedSeats(table.id)}/{table.seatsCount}
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -1474,6 +1489,74 @@ export default function SeatingPlanner({
                 Place on Floor Plan
               </button>
             </form>
+          </div>
+
+          {/* SEATING DIRECTORY: Quick Table Overview & Selector */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm space-y-3">
+            <div className="border-b border-slate-100 pb-2 flex items-center justify-between">
+              <h3 className="font-display font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-slate-500" />
+                Seating Directory
+              </h3>
+              <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">
+                {tables.filter(t => t.type === 'round_table' || t.type === 'rectangular_table' || !t.type).length} Guest Tables
+              </span>
+            </div>
+
+            {tables.length === 0 ? (
+              <p className="text-[11px] text-slate-400 italic text-center py-2">No layout items placed yet.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1">
+                {tables.map(table => {
+                  const isGuestTable = table.type === 'round_table' || table.type === 'rectangular_table' || !table.type;
+                  const isSelected = selectedTableId === table.id;
+                  const occupiedCount = countOccupiedSeats(table.id);
+                  const isFull = occupiedCount === table.seatsCount;
+                  const isEmpty = occupiedCount === 0;
+
+                  return (
+                    <button
+                      key={table.id}
+                      type="button"
+                      onClick={() => setSelectedTableId(table.id)}
+                      className={`w-full text-left flex items-center justify-between px-3 py-1.5 rounded-xl border text-[11px] transition-all cursor-pointer ${
+                        isSelected 
+                          ? 'bg-amber-50/50 border-amber-300/80 text-amber-950 font-medium shadow-3xs' 
+                          : 'bg-slate-50/40 border-slate-200/60 hover:bg-slate-50 hover:border-slate-300 text-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm shrink-0">
+                          {table.type === 'round_table' || !table.type ? '⭕' : table.type === 'rectangular_table' ? '🟩' : '✨'}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-semibold truncate">{table.name}</p>
+                          <p className="text-[8px] text-slate-400 font-mono uppercase tracking-wider">
+                            {table.type?.replace('_', ' ') || 'Round Guest Table'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {isGuestTable ? (
+                        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold tracking-tight border shrink-0 ${
+                          isFull
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : isEmpty
+                            ? 'bg-slate-100 text-slate-400 border-slate-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                          <span>{occupiedCount}</span>
+                          <span className="text-slate-300">/</span>
+                          <span>{table.seatsCount}</span>
+                        </div>
+                      ) : (
+                        <span className="text-[8px] text-slate-400 font-mono uppercase tracking-wider italic shrink-0">Fixture</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* CHAIR CONFIGURATION & ASSIGNMENTS PANEL */}

@@ -253,7 +253,7 @@ export default function App() {
   };
 
   // Table handlers
-  const handleAddTable = async (newTable: Omit<Table, 'id'>) => {
+  const handleAddTable = async (newTable: Omit<Table, 'id'> & { id?: string }) => {
     try {
       const res = await fetch('/api/tables', {
         method: 'POST',

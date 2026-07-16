@@ -32,7 +32,8 @@ const firebaseApp = initializeApp({
 // Initialize Firestore with custom database ID
 const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId || "(default)");
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // -------------------------------------------------------------------------
 // Default Seed Data
@@ -575,6 +576,39 @@ app.delete("/api/tasks/:id", async (req, res) => {
   data.tasks = data.tasks.filter(t => t.id !== id);
   await saveWeddingData(data);
   res.json(data.tasks);
+});
+
+// -------------------------------------------------------------------------
+// Image Upload Endpoint
+// -------------------------------------------------------------------------
+// Ensure uploads directory exists
+const uploadsDir = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Serve uploads statically
+app.use("/uploads", express.static(uploadsDir));
+
+app.post("/api/upload", async (req, res) => {
+  try {
+    const { fileName, fileType, base64Data } = req.body;
+    if (!base64Data) {
+      return res.status(400).json({ error: "No file data provided" });
+    }
+
+    const buffer = Buffer.from(base64Data, "base64");
+    const sanitizedName = fileName ? fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_") : "upload.jpg";
+    const uniqueName = `${Date.now()}_${sanitizedName}`;
+    const filePath = path.join(uploadsDir, uniqueName);
+
+    fs.writeFileSync(filePath, buffer);
+
+    res.json({ url: `/uploads/${uniqueName}` });
+  } catch (err) {
+    console.error("Error saving uploaded file:", err);
+    res.status(500).json({ error: "Failed to upload image" });
+  }
 });
 
 // -------------------------------------------------------------------------
